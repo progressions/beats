@@ -23,30 +23,31 @@ function blendHex(colorA, colorB, amount) {
 }
 
 function gradientColorAt(start, mid, end, ratio) {
-  if (ratio <= 0.5) {
-    const local = ratio * 2;
+  const normalized = ((ratio % 1) + 1) % 1;
+  if (normalized <= 0.5) {
+    const local = normalized * 2;
     return blendHex(start, mid, local);
   }
-  const local = (ratio - 0.5) * 2;
+  const local = (normalized - 0.5) * 2;
   return blendHex(mid, end, local);
 }
 
-export function createPastelGradient(width, warmth = 0.5) {
+export function createPastelGradient(width, warmth = 0.5, phase = 0) {
   const palette = colors();
   const warmAccent = blendHex(palette.accent, palette.warning, warmth);
   const warmGlow = blendHex(palette.success, palette.warning, warmth);
   return (index, text) => {
-    const ratio = width <= 1 ? 0 : Math.min(1, index / (width - 1));
-    const color = gradientColorAt(palette.note, warmAccent, warmGlow, ratio);
+    const ratio = width <= 1 ? 0 : Math.min(1, index / Math.max(1, width - 1));
+    const color = gradientColorAt(palette.note, warmAccent, warmGlow, ratio + phase);
     return chalk.hex(color)(text);
   };
 }
 
-export function colorizeByPosition(text, position, width, warmth = 0.5) {
+export function colorizeByPosition(text, position, width, warmth = 0.5, phase = 0) {
   const palette = colors();
   const warmAccent = blendHex(palette.accent, palette.warning, warmth);
   const warmGlow = blendHex(palette.success, palette.warning, warmth);
-  const ratio = width <= 1 ? 0 : Math.min(1, position / (width - 1));
-  const color = gradientColorAt(palette.note, warmAccent, warmGlow, ratio);
+  const ratio = width <= 1 ? 0 : Math.min(1, position / Math.max(1, width - 1));
+  const color = gradientColorAt(palette.note, warmAccent, warmGlow, ratio + phase);
   return chalk.hex(color)(text);
 }

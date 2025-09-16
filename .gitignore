@@ -8,4 +8,5 @@ pnpm-debug.log*
 .vscode/
 *.log
 sessions/*.json
+specs/
 measures/*.json

@@ -24,13 +24,16 @@ export class PianoRollView {
     });
   }
 
-  render(measure, { cursorStep = 0, playheadStep = 0, isPlaying = false } = {}) {
+  render(
+    measure,
+    { cursorStep = 0, playheadStep = 0, playheadOffset = 0, isPlaying = false, gradientPhase = 0 } = {}
+  ) {
     if (!measure) {
       this.box.setContent('Load or create a measure to begin.');
       return;
     }
     const width = Math.max(10, (this.box.width || this.screen.width) - 4);
-    const gradient = createPastelGradient(width, measure.warmth);
+    const gradient = createPastelGradient(width, measure.warmth, gradientPhase);
     const stepWidth = Math.max(1, Math.floor(width / measure.loopLength));
     const timeline = new Array(width).fill('─');
     const noteLine = new Array(width).fill(' ');
@@ -57,7 +60,8 @@ export class PianoRollView {
     noteLine[cursorColumn] = gradient(cursorColumn, cursorChar);
 
     if (isPlaying) {
-      const playColumn = Math.min(width - 1, Math.floor(playheadStep * stepWidth));
+      const playPosition = (playheadStep + playheadOffset) * stepWidth;
+      const playColumn = Math.min(width - 1, Math.round(playPosition));
       noteLine[playColumn] = colorize('│', 'cursor');
       timeline[playColumn] = colorize('│', 'cursor');
     }
@@ -82,7 +86,8 @@ export class PianoRollView {
     }
 
     lines.push('');
-    lines.push(`Position: step ${playheadStep + 1} / ${measure.loopLength}`);
+    const playPositionLabel = (playheadStep + playheadOffset).toFixed(2);
+    lines.push(`Position: step ${playPositionLabel} / ${measure.loopLength}`);
     lines.push('Durations: 1/16 ░  1/8 ▒  1/4 ▓  1/2 █  1/1 ▉');
 
     this.box.setContent(lines.join('\n'));

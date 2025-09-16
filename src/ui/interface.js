@@ -6,7 +6,7 @@ import { ParameterPanel } from './parameters.js';
 import { ControlHandler } from './controls.js';
 import { colors, colorize } from './colors.js';
 import { nextInArray, getAvailableKeys, getAvailableScales, getScaleDefinition, noteToMidi, noteNameFromMidi } from '../utils/music.js';
-import { clamp, durationToBeats, beatsToSeconds } from '../utils/timing.js';
+import { clamp, durationToBeats, secondsToBeats } from '../utils/timing.js';
 
 export class Interface extends EventEmitter {
   constructor({ measure, audioEngine, defaults }) {
@@ -20,7 +20,10 @@ export class Interface extends EventEmitter {
     this.stepResolutionBeats = 0.25;
     this.isPlaying = false;
     this.playheadStep = 0;
-    this.playheadTimer = null;
+    this.playheadOffset = 0;
+    this.playheadInterval = null;
+    this.playStartTime = null;
+    this.gradientPhase = 0;
     this.currentPitch = this._nearestScaleMidi(this.currentPitch);
     this.screen = createScreen();
     this.palette = colors();
@@ -307,7 +310,9 @@ export class Interface extends EventEmitter {
     this.pianoRoll.render(this.measure, {
       cursorStep: this.cursorStep,
       playheadStep: this.playheadStep,
-      isPlaying: this.isPlaying
+      playheadOffset: this.playheadOffset,
+      isPlaying: this.isPlaying,
+      gradientPhase: this.gradientPhase
     });
     const pitchLabel = noteNameFromMidi(this.currentPitch);
     this.parameters.update(this.measure, {
@@ -322,6 +327,8 @@ export class Interface extends EventEmitter {
     this.cursorStep = 0;
     this.currentPitch = this._nearestScaleMidi(this.currentPitch);
     this.playheadStep = 0;
+    this.playheadOffset = 0;
+    this.gradientPhase = 0;
     this._restartPlayheadTimer();
     this.refresh();
   }
@@ -448,35 +455,73 @@ export class Interface extends EventEmitter {
     return step % 2 === 0 ? Math.max(0.01, base - offset) : base + offset;
   }
 
-  _stopPlayheadTimer() {
-    if (this.playheadTimer) {
-      clearTimeout(this.playheadTimer);
-      this.playheadTimer = null;
+  _loopTotalBeats() {
+    if (!this.measure) {
+      return 0;
     }
+    let total = 0;
+    for (let i = 0; i < this.measure.loopLength; i += 1) {
+      total += this._stepDurationForStep(i);
+    }
+    return total;
   }
 
-  _scheduleNextPlayheadStep() {
-    if (!this.isPlaying || !this.measure) {
-      return;
+  _stopPlayheadTimer() {
+    if (this.playheadInterval) {
+      clearInterval(this.playheadInterval);
+      this.playheadInterval = null;
     }
-    const durationBeats = this._stepDurationForStep(this.playheadStep);
-    const durationMs = beatsToSeconds(durationBeats, this.measure.tempo) * 1000;
-    this.playheadTimer = setTimeout(() => {
-      this.playheadStep = (this.playheadStep + 1) % this.measure.loopLength;
-      this.refresh();
-      this._scheduleNextPlayheadStep();
-    }, Math.max(10, durationMs));
+    this.playStartTime = null;
   }
 
   _startPlayheadTimer() {
     this._stopPlayheadTimer();
     this.playheadStep = 0;
-    this._scheduleNextPlayheadStep();
+    this.playheadOffset = 0;
+    this.gradientPhase = 0;
+    this.playStartTime = process.hrtime.bigint();
+    this.playheadInterval = setInterval(() => this._updatePlayhead(), 30);
+    this._updatePlayhead();
+  }
+
+  _updatePlayhead() {
+    if (!this.isPlaying || !this.measure || !this.playStartTime) {
+      return;
+    }
+    const now = process.hrtime.bigint();
+    const elapsedSeconds = Number(now - this.playStartTime) / 1e9;
+    const elapsedBeats = secondsToBeats(elapsedSeconds, this.measure.tempo);
+    const loopBeats = this._loopTotalBeats() || this.measure.loopLength * this.stepResolutionBeats;
+    const positionBeats = loopBeats === 0 ? 0 : ((elapsedBeats % loopBeats) + loopBeats) % loopBeats;
+
+    let accumulated = 0;
+    let step = 0;
+    while (step < this.measure.loopLength) {
+      const duration = this._stepDurationForStep(step);
+      if (positionBeats < accumulated + duration) {
+        break;
+      }
+      accumulated += duration;
+      step += 1;
+    }
+    if (step >= this.measure.loopLength) {
+      step = 0;
+      accumulated = 0;
+    }
+    const stepDuration = this._stepDurationForStep(step);
+    const remainder = Math.max(0, positionBeats - accumulated);
+    this.playheadStep = step;
+    this.playheadOffset = stepDuration > 0 ? remainder / stepDuration : 0;
+    this.gradientPhase = loopBeats > 0 ? positionBeats / loopBeats : 0;
+    this.refresh();
   }
 
   _restartPlayheadTimer() {
     if (this.isPlaying) {
       this._startPlayheadTimer();
+    } else {
+      this.gradientPhase = 0;
+      this.playheadOffset = 0;
     }
   }
 
@@ -616,6 +661,8 @@ export class Interface extends EventEmitter {
     } else {
       this._stopPlayheadTimer();
       this.playheadStep = 0;
+      this.playheadOffset = 0;
+      this.gradientPhase = 0;
       this.refresh();
     }
   }
