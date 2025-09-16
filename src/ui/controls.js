@@ -23,6 +23,8 @@ export class ControlHandler extends EventEmitter {
     this.screen.key(['p', 'P'], () => this.emit('addNote'));
     this.screen.key(['u', 'U'], () => this.emit('deleteNote'));
     this.screen.key(['h'], () => this.emit('toggleHelp'));
+    this.screen.key([']'], () => this.emit('helpNext'));
+    this.screen.key(['['], () => this.emit('helpPrev'));
     this.screen.key(['C-s'], () => this.emit('saveMeasure'));
     this.screen.key(['C-o'], () => this.emit('loadMeasure'));
     this.screen.key(['C-n'], () => this.emit('newMeasure'));

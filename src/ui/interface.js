@@ -60,9 +60,12 @@ export class Interface extends EventEmitter {
         border: { fg: this.palette.accent },
         bg: this.palette.background
       },
-      content: this._helpDetails()
+      content: ''
     });
     this.helpVisible = false;
+    this.helpPages = this._buildHelpPages();
+    this.helpPageIndex = 0;
+    this._renderHelpOverlay();
     this.controls = new ControlHandler(this.screen);
     this._registerControlEvents();
     this.refresh();
@@ -72,27 +75,79 @@ export class Interface extends EventEmitter {
     return [
       '{bold}Space{/bold} Play/Pause  {bold}P{/bold} Add note  {bold}U{/bold} Remove  {bold}← →{/bold} Move cursor',
       '{bold}↑ ↓{/bold} Pitch ±  {bold}T{/bold} Tempo ±5  {bold}W{/bold} Swing  {bold}L{/bold} Loop  {bold}D{/bold} Duration',
-      '{bold}K{/bold} Key  {bold}S{/bold} Scale  {bold}R{/bold} Warmth ±  {bold}3/4{/bold} Time Sig  {bold}Ctrl+S{/bold} Save  {bold}Ctrl+O{/bold} Load  {bold}Ctrl+N{/bold} New  {bold}H{/bold} Help'
+      '{bold}K{/bold} Key  {bold}S{/bold} Scale  {bold}R{/bold} Warmth ±  {bold}3/4{/bold} Time Sig  {bold}Ctrl+S{/bold} Save  {bold}Ctrl+O{/bold} Load  {bold}Ctrl+N{/bold} New  {bold}[ ]{/bold} Help Pages  {bold}H{/bold} Help'
     ].join('\n');
   }
 
-  _helpDetails() {
+  _buildHelpPages() {
     return [
-      '{bold}Interactive Measure Editor{/bold}',
-      '',
-      '• Use arrow keys to position the cursor within the loop.',
-      '• Press P to insert a note at the cursor using the active duration.',
-      '• Press U to remove the note at the cursor.',
-      '• Adjust the current note pitch with ↑ / ↓ while hovering a note.',
-      '• Tempo (T/Shift+T), swing (W), key (K/Shift+K), scale (S/Shift+S),',
-      '  loop length (L), warmth (R/Shift+R), and time signatures (3 or 4)',
-      '  take effect immediately in the audio engine.',
-      '• Press Space to start/stop playback. Ctrl+S saves, Ctrl+O loads, Ctrl+N creates a new measure.',
-      '• Q quits the editor safely.',
-      '',
-      'All changes apply instantly. Use persistence commands to save or load.',
-      'Press H again to dismiss this help.'
-    ].join('\n');
+      {
+        title: 'Quick Start',
+        lines: [
+          '{bold}Interactive Measure Editor{/bold}',
+          '',
+          '• Space toggles playback, P adds notes, U removes notes.',
+          '• Arrow keys move the cursor; ↑ / ↓ shift pitch within the active scale.',
+          '• Duration (D) and Loop (L) cycle rhythmic context for cursor movement.'
+        ]
+      },
+      {
+        title: 'Parameters',
+        lines: [
+          'Tempo  T/Shift+T  •  Swing  W  •  Warmth  R/Shift+R',
+          'Key    K/Shift+K  •  Scale  S/Shift+S',
+          'Time signatures (3 or 4), loop lengths (L) update audio + visuals instantly.',
+          'Ctrl+S saves, Ctrl+O loads, Ctrl+N creates a fresh measure.'
+        ]
+      },
+      {
+        title: 'Editing Tips',
+        lines: [
+          '• Notes snap to the current duration grid and active scale.',
+          '• Use A–G to target specific scale degrees at the cursor.',
+          '• Warmth + swing apply to newly added notes in real time.',
+          '• Pitch adjustments respect range (C1–C7) and scale membership.'
+        ]
+      },
+      {
+        title: 'Navigation & Help',
+        lines: [
+          '• [ and ] cycle these help pages while visible.',
+          '• Q exits safely; status pane logs parameter + validation feedback.',
+          '• Auto-saves capture every parameter change for later recovery.'
+        ]
+      }
+    ];
+  }
+
+  _renderHelpOverlay() {
+    if (!this.helpOverlay) {
+      return;
+    }
+    const pages = this.helpPages || [];
+    if (pages.length === 0) {
+      this.helpOverlay.setContent('Help unavailable.');
+      return;
+    }
+    const index = ((this.helpPageIndex % pages.length) + pages.length) % pages.length;
+    this.helpPageIndex = index;
+    const page = pages[index];
+    const header = `{bold}${page.title}{/bold} (${index + 1}/${pages.length})`;
+    const nav = '{dim}[ / ] navigate · H closes{/dim}';
+    const body = page.lines.join('\n');
+    this.helpOverlay.setContent(`${header}\n\n${body}\n\n${nav}`);
+  }
+
+  _cycleHelp(direction) {
+    if (!this.helpVisible) {
+      return;
+    }
+    const pages = this.helpPages || [];
+    if (pages.length === 0) {
+      return;
+    }
+    this.helpPageIndex = (this.helpPageIndex + direction + pages.length) % pages.length;
+    this._renderHelpOverlay();
   }
 
   _registerControlEvents() {
@@ -109,13 +164,21 @@ export class Interface extends EventEmitter {
       this.refresh();
     });
     this.controls.on('adjustPitch', (delta) => {
-      this.currentPitch = this._shiftPitch(this.currentPitch, delta);
+      if (delta === 0) {
+        return;
+      }
+      const nextPitch = this._shiftPitch(this.currentPitch, delta);
+      let noteChanged = false;
       if (this.measure) {
         const notes = this.measure.notesAtStep(this.cursorStep);
         notes.forEach((note) => {
-          note.pitch = this._shiftPitch(note.pitch, delta);
+          const updated = this._shiftPitch(note.pitch, delta);
+          if (updated !== note.pitch) {
+            note.pitch = updated;
+            noteChanged = true;
+          }
         });
-        if (notes.length > 0) {
+        if (noteChanged) {
           this.measure.recordHistory({
             parameter: 'note',
             value: `adjust pitch @${this.cursorStep}`
@@ -125,6 +188,11 @@ export class Interface extends EventEmitter {
           this.emit('noteChange', { type: 'update', step: this.cursorStep });
         }
       }
+      if (nextPitch === this.currentPitch && !noteChanged) {
+        this.showMessage('Pitch limit reached for current scale.');
+        return;
+      }
+      this.currentPitch = nextPitch;
       this.showMessage(`Cursor pitch → ${noteNameFromMidi(this.currentPitch)}`);
       this.refresh();
     });
@@ -183,7 +251,13 @@ export class Interface extends EventEmitter {
       if (!this.measure) {
         return;
       }
-      this.measure.tempo = clamp(this.measure.tempo + delta, 40, 260);
+      const proposed = this.measure.tempo + delta;
+      const clamped = clamp(proposed, 40, 260);
+      if (clamped === this.measure.tempo && proposed !== this.measure.tempo) {
+        this.showMessage('Tempo limit reached (40-260 BPM).');
+        return;
+      }
+      this.measure.tempo = clamped;
       this.audioEngine.setTempo(this.measure.tempo);
       this.measure.touch();
       this._recordParameterChange('tempo', this.measure.tempo);
@@ -238,7 +312,13 @@ export class Interface extends EventEmitter {
       if (!this.measure) {
         return;
       }
-      this.measure.warmth = clamp(this.measure.warmth + delta, 0, 1);
+      const proposed = this.measure.warmth + delta;
+      const clamped = clamp(proposed, 0, 1);
+      if (clamped === this.measure.warmth && proposed !== this.measure.warmth) {
+        this.showMessage('Warmth already at limit (0-100%).');
+        return;
+      }
+      this.measure.warmth = clamped;
       this.audioEngine.setWarmth(this.measure.warmth);
       this.measure.touch();
       this._recordParameterChange('warmth', this.measure.warmth);
@@ -278,8 +358,17 @@ export class Interface extends EventEmitter {
     this.controls.on('toggleHelp', () => {
       this.helpVisible = !this.helpVisible;
       this.helpOverlay.hidden = !this.helpVisible;
+      if (this.helpVisible) {
+        this.helpPageIndex = 0;
+        this._renderHelpOverlay();
+        this.showMessage('Help opened — use [ and ] to browse pages.');
+      } else {
+        this.showMessage('Help closed.');
+      }
       this.screen.render();
     });
+    this.controls.on('helpNext', () => this._cycleHelp(1));
+    this.controls.on('helpPrev', () => this._cycleHelp(-1));
     this.controls.on('saveMeasure', () => this.emit('saveMeasure'));
     this.controls.on('loadMeasure', () => this.emit('loadMeasure'));
     this.controls.on('newMeasure', () => this.emit('newMeasure'));
