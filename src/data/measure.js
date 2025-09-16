@@ -3,13 +3,22 @@ import { NOTE_DURATIONS, totalBeats } from '../utils/timing.js';
 import { noteToMidi } from '../utils/music.js';
 
 export class NoteEvent {
-  constructor({ id = uuid(), step = 0, duration = '1/4', velocity = 0.8, pitch = 60, octave = 4 }) {
+  constructor({
+    id = uuid(),
+    step = 0,
+    duration = '1/4',
+    velocity = 0.8,
+    pitch = 60,
+    octave = 4,
+    channel = 0
+  }) {
     this.id = id;
     this.step = step;
     this.duration = duration;
     this.velocity = velocity;
     this.pitch = pitch;
     this.octave = octave;
+    this.channel = channel;
   }
 
   clone(overrides = {}) {
@@ -20,6 +29,7 @@ export class NoteEvent {
       velocity: this.velocity,
       pitch: this.pitch,
       octave: this.octave,
+      channel: this.channel,
       ...overrides
     });
   }
@@ -36,6 +46,13 @@ export class NoteEvent {
   }
 }
 
+const DEFAULT_CHANNELS = [
+  { id: 'ch1', name: 'Lead', color: '#ff6b9d' },
+  { id: 'ch2', name: 'Harmony', color: '#8e44ad' },
+  { id: 'ch3', name: 'Bass', color: '#0abde3' },
+  { id: 'ch4', name: 'Percussion', color: '#fdcb6e' }
+];
+
 export class Measure {
   constructor({
     id = uuid(),
@@ -48,7 +65,8 @@ export class Measure {
     warmth = 0.5,
     key = 'C',
     scale = 'major',
-    history = []
+    history = [],
+    channels = DEFAULT_CHANNELS
   } = {}) {
     this.id = id;
     this.name = name;
@@ -61,6 +79,7 @@ export class Measure {
     this.key = key;
     this.scale = scale;
     this.history = history;
+    this.channels = channels.length > 0 ? channels : DEFAULT_CHANNELS;
     this.lastModified = new Date().toISOString();
   }
 
@@ -100,15 +119,36 @@ export class Measure {
   }
 
   listNotes() {
-    return [...this.notes].sort((a, b) => a.step - b.step);
+    return [...this.notes].sort((a, b) => {
+      if (a.channel !== b.channel) {
+        return a.channel - b.channel;
+      }
+      return a.step - b.step;
+    });
   }
 
-  notesAtStep(step) {
-    return this.notes.filter((note) => note.step === step);
+  notesAtStep(step, channel = null) {
+    return this.notes.filter((note) => {
+      if (note.step !== step) {
+        return false;
+      }
+      if (channel === null || channel === undefined) {
+        return true;
+      }
+      return note.channel === channel;
+    });
   }
 
   totalBeats() {
     return totalBeats(this.loopLength, this.timeSignature);
+  }
+
+  channelCount() {
+    return this.channels.length;
+  }
+
+  channelInfo(index) {
+    return this.channels[index] || { id: `ch${index + 1}`, name: `Channel ${index + 1}` };
   }
 
   serialize() {
@@ -123,6 +163,7 @@ export class Measure {
       warmth: this.warmth,
       key: this.key,
       scale: this.scale,
+      channels: this.channels,
       history: [...this.history],
       lastModified: this.lastModified
     };

@@ -24,6 +24,7 @@ export class Interface extends EventEmitter {
     this.playheadInterval = null;
     this.playStartTime = null;
     this.gradientPhase = 0;
+    this.currentChannel = 0;
     this.currentPitch = this._nearestScaleMidi(this.currentPitch);
     this.screen = createScreen();
     this.palette = colors();
@@ -92,8 +93,8 @@ export class Interface extends EventEmitter {
 
   _buildHelpText() {
     return [
-      '{bold}Space{/bold} Play/Pause  {bold}P{/bold} Add note  {bold}U{/bold} Remove  {bold}← →{/bold} Move cursor',
-      '{bold}↑ ↓{/bold} Pitch ±  {bold}T{/bold} Tempo ±5  {bold}W{/bold} Swing  {bold}L{/bold} Loop  {bold}D{/bold} Duration',
+      '{bold}Space{/bold} Play/Pause  {bold}P{/bold} Add note  {bold}Del{/bold} Remove  {bold}← →{/bold} Move cursor',
+      '{bold}↑ ↓{/bold} Channel  {bold}+/-{/bold} Pitch ±  {bold}T{/bold} Tempo ±5  {bold}W{/bold} Swing  {bold}L{/bold} Loop  {bold}D{/bold} Duration',
       '{bold}K{/bold} Key  {bold}S{/bold} Scale  {bold}R{/bold} Warmth ±  {bold}3/4{/bold} Time Sig  {bold}Ctrl+S{/bold} Save  {bold}Ctrl+O{/bold} Load  {bold}Ctrl+N{/bold} New  {bold}Ctrl+H{/bold} History  {bold}[ ]{/bold} Help Pages  {bold}H{/bold} Help'
     ].join('\n');
   }
@@ -105,8 +106,8 @@ export class Interface extends EventEmitter {
         lines: [
           '{bold}Interactive Measure Editor{/bold}',
           '',
-          '• Space toggles playback, P adds notes, U removes notes.',
-          '• Arrow keys move the cursor; ↑ / ↓ shift pitch within the active scale.',
+          '• Space toggles playback, P adds notes, Del removes notes.',
+          '• Arrow keys move the cursor; ↑ / ↓ swap channels; use +/- for pitch nudges.',
           '• Duration (D) and Loop (L) cycle rhythmic context for cursor movement.'
         ]
       },
@@ -221,6 +222,7 @@ export class Interface extends EventEmitter {
       let target = this.cursorStep + delta * stepIncrement;
       target = clamp(target, 0, maxStep);
       this.cursorStep = this._snapToStepGrid(target, stepIncrement);
+      this.parameters.markChanged('position');
       this.refresh();
     });
     this.controls.on('adjustPitch', (delta) => {
@@ -230,7 +232,7 @@ export class Interface extends EventEmitter {
       const nextPitch = this._shiftPitch(this.currentPitch, delta);
       let noteChanged = false;
       if (this.measure) {
-        const notes = this.measure.notesAtStep(this.cursorStep);
+        const notes = this.measure.notesAtStep(this.cursorStep, this.currentChannel);
         notes.forEach((note) => {
           const updated = this._shiftPitch(note.pitch, delta);
           if (updated !== note.pitch) {
@@ -260,13 +262,14 @@ export class Interface extends EventEmitter {
       if (!this.measure) {
         return;
       }
-      const existing = this.measure.notesAtStep(this.cursorStep);
+      const existing = this.measure.notesAtStep(this.cursorStep, this.currentChannel);
       const pitch = this._nearestScaleMidi(this.currentPitch);
       const payload = {
         step: this.cursorStep,
         duration: this.currentDuration,
         pitch,
-        velocity: 0.8
+        velocity: 0.8,
+        channel: this.currentChannel
       };
       if (existing.length === 0) {
         this.measure.addNote(payload);
@@ -294,7 +297,7 @@ export class Interface extends EventEmitter {
       if (!this.measure) {
         return;
       }
-      const [note] = this.measure.notesAtStep(this.cursorStep);
+      const [note] = this.measure.notesAtStep(this.cursorStep, this.currentChannel);
       if (note) {
         this.measure.removeNote(note.id);
         this.measure.recordHistory({
@@ -402,6 +405,8 @@ export class Interface extends EventEmitter {
       this.currentDuration = duration;
       this.cursorStep = this._snapToStepGrid(this.cursorStep, this._cursorStepIncrement());
       this.showMessage(`Duration set to ${duration}`);
+      this._recordParameterChange('duration', duration);
+      this.parameters.markChanged('position');
       this.refresh();
     });
     this.controls.on('changeTimeSignature', (signature) => {
@@ -455,7 +460,7 @@ export class Interface extends EventEmitter {
       const newPitch = this._pitchForLetter(letter);
       this.currentPitch = newPitch;
       if (this.measure) {
-        const notes = this.measure.notesAtStep(this.cursorStep);
+        const notes = this.measure.notesAtStep(this.cursorStep, this.currentChannel);
         if (notes.length > 0) {
           notes.forEach((note) => {
             note.pitch = newPitch;
@@ -472,6 +477,22 @@ export class Interface extends EventEmitter {
       this.showMessage(`Selected pitch ${noteNameFromMidi(this.currentPitch)} from scale.`);
       this.refresh();
     });
+    this.controls.on('changeChannel', (direction) => {
+      if (!this.measure) {
+        return;
+      }
+      const maxIndex = Math.max(0, this.measure.channelCount() - 1);
+      const next = clamp(this.currentChannel + direction, 0, maxIndex);
+      if (next === this.currentChannel) {
+        this.showMessage('No more channels in that direction.');
+        return;
+      }
+      this.currentChannel = next;
+      const channelInfo = this.measure.channelInfo(this.currentChannel);
+      this._recordParameterChange('channel', channelInfo.name || `Ch${this.currentChannel + 1}`);
+      this.showMessage(`Channel → ${channelInfo.name || `Ch${this.currentChannel + 1}`}`);
+      this.refresh();
+    });
   }
 
   refresh() {
@@ -480,12 +501,17 @@ export class Interface extends EventEmitter {
       playheadStep: this.playheadStep,
       playheadOffset: this.playheadOffset,
       isPlaying: this.isPlaying,
-      gradientPhase: this.gradientPhase
+      gradientPhase: this.gradientPhase,
+      currentChannel: this.currentChannel
     });
     const pitchLabel = noteNameFromMidi(this.currentPitch);
     this.parameters.update(this.measure, {
       currentDuration: this.currentDuration,
-      currentPitch: pitchLabel
+      currentPitch: pitchLabel,
+      currentChannel: this.currentChannel,
+      cursorStep: this.cursorStep,
+      stepResolutionBeats: this.stepResolutionBeats,
+      isPlaying: this.isPlaying
     });
     this.screen.render();
   }
@@ -497,6 +523,8 @@ export class Interface extends EventEmitter {
     this.playheadStep = 0;
     this.playheadOffset = 0;
     this.gradientPhase = 0;
+    const maxChannelIndex = Math.max(0, this.measure.channelCount() - 1);
+    this.currentChannel = clamp(this.currentChannel, 0, maxChannelIndex);
     this._restartPlayheadTimer();
     this.refresh();
   }
@@ -580,6 +608,7 @@ export class Interface extends EventEmitter {
       return;
     }
     this.measure.recordHistory({ parameter, value });
+    this.parameters.markChanged(parameter);
     this.emit('parameterChange', {
       parameter,
       value,
@@ -824,6 +853,7 @@ export class Interface extends EventEmitter {
 
   setPlaying(isPlaying) {
     this.isPlaying = isPlaying;
+    this.parameters.markChanged('playing');
     if (isPlaying) {
       this._startPlayheadTimer();
     } else {

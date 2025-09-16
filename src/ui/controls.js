@@ -17,10 +17,13 @@ export class ControlHandler extends EventEmitter {
     this.screen.key(['space'], () => this.emit('togglePlayback'));
     this.screen.key(['left'], () => this.emit('moveCursor', -1));
     this.screen.key(['right'], () => this.emit('moveCursor', 1));
-    this.screen.key(['up'], () => this.emit('adjustPitch', 1));
-    this.screen.key(['down'], () => this.emit('adjustPitch', -1));
+    this.screen.key(['up'], () => this.emit('changeChannel', -1));
+    this.screen.key(['down'], () => this.emit('changeChannel', 1));
+    this.screen.key(['+', '='], () => this.emit('adjustPitch', 1));
+    this.screen.key(['-', '_'], () => this.emit('adjustPitch', -1));
 
     this.screen.key(['p', 'P'], () => this.emit('addNote'));
+    this.screen.key(['delete', 'backspace'], () => this.emit('deleteNote'));
     this.screen.key(['u', 'U'], () => this.emit('deleteNote'));
     this.screen.key(['h'], () => this.emit('toggleHelp'));
     this.screen.key([']'], () => this.emit('helpNext'));
@@ -33,30 +36,19 @@ export class ControlHandler extends EventEmitter {
       this.emit('selectNoteLetter', ch);
     });
 
-    this.screen.key(['t'], (_, key) => {
-      if (key.shift) {
-        this.emit('tempoChange', -5);
-      } else {
-        this.emit('tempoChange', 5);
-      }
-    });
+    this.screen.key(['t'], () => this.emit('tempoChange', 5));
+    this.screen.key(['T', 'S-t', 'shift-t'], () => this.emit('tempoChange', -5));
 
     this.screen.key(['w'], () => this.emit('toggleSwing'));
 
-    this.screen.key(['k'], (_, key) => {
-      const direction = key.shift ? -1 : 1;
-      this.emit('cycleKey', direction);
-    });
+    this.screen.key(['k'], () => this.emit('cycleKey', 1));
+    this.screen.key(['K', 'S-k', 'shift-k'], () => this.emit('cycleKey', -1));
 
-    this.screen.key(['s'], (_, key) => {
-      const direction = key.shift ? -1 : 1;
-      this.emit('cycleScale', direction);
-    });
+    this.screen.key(['s'], () => this.emit('cycleScale', 1));
+    this.screen.key(['S', 'S-s', 'shift-s'], () => this.emit('cycleScale', -1));
 
-    this.screen.key(['r'], (_, key) => {
-      const delta = key.shift ? -0.1 : 0.1;
-      this.emit('adjustWarmth', delta);
-    });
+    this.screen.key(['r'], () => this.emit('adjustWarmth', 0.1));
+    this.screen.key(['R', 'S-r', 'shift-r'], () => this.emit('adjustWarmth', -0.1));
 
     this.screen.key(['l'], () => {
       this.loopIndex = (this.loopIndex + 1) % LOOP_OPTIONS.length;

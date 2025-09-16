@@ -3,6 +3,8 @@ import { createPastelGradient } from './gradient.js';
 import { colors, colorize } from './colors.js';
 import { noteNameFromMidi } from '../utils/music.js';
 
+const LABEL_WIDTH = 12;
+
 export class PianoRollView {
   constructor({ screen, top = 0, left = 0, height = '50%' }) {
     this.screen = screen;
@@ -26,7 +28,14 @@ export class PianoRollView {
 
   render(
     measure,
-    { cursorStep = 0, playheadStep = 0, playheadOffset = 0, isPlaying = false, gradientPhase = 0 } = {}
+    {
+      cursorStep = 0,
+      playheadStep = 0,
+      playheadOffset = 0,
+      isPlaying = false,
+      gradientPhase = 0,
+      currentChannel = 0
+    } = {}
   ) {
     if (!measure) {
       this.box.setContent('Load or create a measure to begin.');
@@ -36,12 +45,13 @@ export class PianoRollView {
     const gradient = createPastelGradient(width, measure.warmth, gradientPhase);
     const stepWidth = Math.max(1, Math.floor(width / measure.loopLength));
     const timeline = new Array(width).fill('─');
-    const noteLine = new Array(width).fill(' ');
-
-    for (let beat = 0; beat <= measure.loopLength; beat += 4) {
+    const beatSpan = measure.loopLength;
+    for (let beat = 0; beat <= beatSpan; beat += 4) {
       const column = Math.min(width - 1, Math.floor(beat * stepWidth));
       timeline[column] = '┊';
     }
+
+    const channelLines = measure.channels.map(() => new Array(width).fill(' '));
 
     measure.listNotes().forEach((note) => {
       const startColumn = Math.min(width - 1, Math.floor(note.step * stepWidth));
@@ -49,47 +59,105 @@ export class PianoRollView {
       const durationBeats = note.durationBeats || 0.25;
       const lengthSteps = Math.max(1, Math.round(durationBeats / 0.25));
       const span = Math.max(1, Math.round(lengthSteps * stepWidth));
+      const channelIndex = clampChannel(note.channel, channelLines.length);
       for (let offset = 0; offset < span && startColumn + offset < width; offset += 1) {
         const columnIndex = startColumn + offset;
-        noteLine[columnIndex] = gradient(columnIndex, char);
+        channelLines[channelIndex][columnIndex] = gradient(columnIndex, char);
       }
     });
 
     const cursorColumn = Math.min(width - 1, Math.floor(cursorStep * stepWidth));
     const cursorChar = cursorStep % 4 === 0 ? '◆' : '◇';
-    noteLine[cursorColumn] = gradient(cursorColumn, cursorChar);
+    if (channelLines[currentChannel]) {
+      channelLines[currentChannel][cursorColumn] = gradient(cursorColumn, cursorChar);
+    }
+    timeline[cursorColumn] = gradient(cursorColumn, cursorChar);
 
     if (isPlaying) {
       const playPosition = (playheadStep + playheadOffset) * stepWidth;
       const playColumn = Math.min(width - 1, Math.round(playPosition));
-      noteLine[playColumn] = colorize('│', 'cursor');
       timeline[playColumn] = colorize('│', 'cursor');
+      channelLines.forEach((line) => {
+        if (line[playColumn] === ' ') {
+          line[playColumn] = colorize('│', 'cursor');
+        }
+      });
     }
 
+    const beatMarkers = buildBeatMarkers(measure.loopLength, stepWidth, width);
     const lines = [];
+    lines.push(`${padLabel('Beat')}│ ${beatMarkers}`);
+    lines.push(`${padLabel('Timeline')}│ ${timeline.join('')}`);
+    measure.channels.forEach((channel, index) => {
+      const name = channel.name || `Ch${index + 1}`;
+      const fitted = fitLabel(name, LABEL_WIDTH);
+      const label = index === currentChannel ? colorize(fitted, 'accent') : fitted;
+      lines.push(`${label}│ ${channelLines[index].join('')}`);
+    });
+
     const statusLabel = isPlaying ? colorize('Playing', 'success') : colorize('Stopped', 'warning');
-    lines.push(`Timeline │ ${timeline.join('')}  ${statusLabel}`);
-    lines.push(`Notes    │ ${noteLine.join('')}`);
-    lines.push('');
-    lines.push('Cue List:');
     const noteList = measure.listNotes();
+    lines.push('');
+    lines.push(`Status: ${statusLabel} │ Cursor step: ${cursorStep}`);
     if (noteList.length === 0) {
-      lines.push('  (no notes)');
+      lines.push('Cue List: (no notes)');
     } else {
-      noteList.slice(0, 10).forEach((note) => {
+      lines.push('Cue List:');
+      noteList.slice(0, 12).forEach((note) => {
         const name = noteNameFromMidi(note.midi);
-        lines.push(`  • Step ${note.step} → ${name} (${note.duration})`);
+        lines.push(
+          `  • Ch${(note.channel ?? 0) + 1} step ${note.step} → ${name} (${note.duration})`
+        );
       });
-      if (noteList.length > 10) {
-        lines.push(`  … ${noteList.length - 10} more`);
+      if (noteList.length > 12) {
+        lines.push(`  … ${noteList.length - 12} more`);
       }
     }
 
-    lines.push('');
-    const playPositionLabel = (playheadStep + playheadOffset).toFixed(2);
-    lines.push(`Position: step ${playPositionLabel} / ${measure.loopLength}`);
-    lines.push('Durations: 1/16 ░  1/8 ▒  1/4 ▓  1/2 █  1/1 ▉');
-
     this.box.setContent(lines.join('\n'));
   }
+}
+
+function padLabel(text) {
+  return fitLabel(text, LABEL_WIDTH);
+}
+
+function fitLabel(text, width) {
+  const base = (text || '').trim();
+  if (base.length >= width) {
+    return `${base.slice(0, Math.max(0, width - 1))}…`;
+  }
+  return base.padEnd(width, ' ');
+}
+
+function clampChannel(channel, count) {
+  if (typeof channel !== 'number' || Number.isNaN(channel)) {
+    return 0;
+  }
+  return Math.min(Math.max(channel, 0), Math.max(0, count - 1));
+}
+
+function buildBeatMarkers(loopLength, stepWidth, width) {
+  const markers = new Array(width).fill(' ');
+  const stepToBeat = 0.25;
+  for (let step = 0; step < loopLength; step += 1) {
+    const beatPosition = step * stepToBeat + 1;
+    if (Math.abs((beatPosition * 2) % 1) > 0.01) {
+      continue;
+    }
+    const column = Math.min(width - 1, Math.floor(step * stepWidth));
+    const label = beatPosition.toFixed(1);
+    placeLabel(markers, column, label);
+  }
+  return markers.join('');
+}
+
+function placeLabel(array, startIndex, text) {
+  const chars = text.split('');
+  chars.forEach((char, offset) => {
+    const index = startIndex + offset;
+    if (index < array.length) {
+      array[index] = char;
+    }
+  });
 }
