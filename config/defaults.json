@@ -1,0 +1,16 @@
+{
+  "tempo": 120,
+  "timeSignature": {
+    "beats": 4,
+    "division": 4
+  },
+  "swing": 0.0,
+  "loopLength": 16,
+  "warmth": 0.5,
+  "key": "C",
+  "scale": "major",
+  "duration": "1/4",
+  "velocity": 0.8,
+  "channels": 1,
+  "sampleRate": 44100
+}

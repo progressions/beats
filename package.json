@@ -1,0 +1,30 @@
+{
+  "name": "interactive-measure-editor",
+  "version": "1.0.0",
+  "description": "Interactive terminal-based measure editor with complete parameter control",
+  "main": "src/main.js",
+  "bin": {
+    "measure-editor": "src/main.js"
+  },
+  "type": "module",
+  "scripts": {
+    "start": "node src/main.js",
+    "dev": "nodemon src/main.js"
+  },
+  "dependencies": {
+    "blessed": "^0.1.81",
+    "blessed-contrib": "^4.11.0",
+    "chalk": "^5.3.0",
+    "fs-extra": "^11.1.1",
+    "keypress": "^0.2.1",
+    "mathjs": "^11.11.0",
+    "speaker": "^0.5.4",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

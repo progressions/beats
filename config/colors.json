@@ -1,0 +1,12 @@
+{
+  "background": "#1f1b24",
+  "grid": "#2c2433",
+  "cursor": "#f8e6a7",
+  "note": "#ffb4a2",
+  "accent": "#b5838d",
+  "text": "#f5f0f6",
+  "parameter": "#cdd6f4",
+  "warning": "#f78c6c",
+  "error": "#f38ba8",
+  "success": "#a6e3a1"
+}
