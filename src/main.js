@@ -37,6 +37,7 @@ async function run() {
   audioEngine.setMeasure(currentMeasure);
 
   const ui = new Interface({ measure: currentMeasure, audioEngine, defaults });
+  ui.updateHistory(parameterHistory);
 
   const scheduleAutoSave = (reason = 'parameter') => {
     pendingAutoSaveReason = reason;
@@ -67,6 +68,7 @@ async function run() {
     if (parameterHistory.length > 500) {
       parameterHistory.shift();
     }
+    ui.updateHistory(parameterHistory);
   };
 
   ui.on('exit', () => {
@@ -154,6 +156,7 @@ async function run() {
       audioEngine.setMeasure(currentMeasure);
       ui.setMeasure(currentMeasure);
       parameterHistory = [...currentMeasure.history];
+      ui.updateHistory(parameterHistory);
       logHistory({ parameter: 'load', value: path.basename(selectedPath), timestamp: new Date().toISOString() });
       scheduleAutoSave('load');
       ui.showMessage(`Loaded ${currentMeasure.name || path.basename(selectedPath)}`);
@@ -176,6 +179,7 @@ async function run() {
     audioEngine.setMeasure(currentMeasure);
     ui.setMeasure(currentMeasure);
     parameterHistory = [...currentMeasure.history];
+    ui.updateHistory(parameterHistory);
     logHistory({ parameter: 'new', value: currentMeasure.id, timestamp: new Date().toISOString() });
     scheduleAutoSave('new');
     ui.showMessage('New measure ready.');

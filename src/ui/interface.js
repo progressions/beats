@@ -66,6 +66,25 @@ export class Interface extends EventEmitter {
     this.helpPages = this._buildHelpPages();
     this.helpPageIndex = 0;
     this._renderHelpOverlay();
+    this.historyOverlay = blessed.box({
+      parent: this.screen,
+      width: '60%',
+      height: '50%',
+      top: 'center',
+      left: 'center',
+      hidden: true,
+      tags: true,
+      border: { type: 'line' },
+      label: ' History ',
+      style: {
+        fg: this.palette.parameter,
+        border: { fg: this.palette.accent },
+        bg: this.palette.background
+      },
+      content: 'No history recorded yet.'
+    });
+    this.historyVisible = false;
+    this.historyEntries = [];
     this.controls = new ControlHandler(this.screen);
     this._registerControlEvents();
     this.refresh();
@@ -75,7 +94,7 @@ export class Interface extends EventEmitter {
     return [
       '{bold}Space{/bold} Play/Pause  {bold}P{/bold} Add note  {bold}U{/bold} Remove  {bold}← →{/bold} Move cursor',
       '{bold}↑ ↓{/bold} Pitch ±  {bold}T{/bold} Tempo ±5  {bold}W{/bold} Swing  {bold}L{/bold} Loop  {bold}D{/bold} Duration',
-      '{bold}K{/bold} Key  {bold}S{/bold} Scale  {bold}R{/bold} Warmth ±  {bold}3/4{/bold} Time Sig  {bold}Ctrl+S{/bold} Save  {bold}Ctrl+O{/bold} Load  {bold}Ctrl+N{/bold} New  {bold}[ ]{/bold} Help Pages  {bold}H{/bold} Help'
+      '{bold}K{/bold} Key  {bold}S{/bold} Scale  {bold}R{/bold} Warmth ±  {bold}3/4{/bold} Time Sig  {bold}Ctrl+S{/bold} Save  {bold}Ctrl+O{/bold} Load  {bold}Ctrl+N{/bold} New  {bold}Ctrl+H{/bold} History  {bold}[ ]{/bold} Help Pages  {bold}H{/bold} Help'
     ].join('\n');
   }
 
@@ -113,6 +132,7 @@ export class Interface extends EventEmitter {
         title: 'Navigation & Help',
         lines: [
           '• [ and ] cycle these help pages while visible.',
+          '• Ctrl+H opens the history log (saves, loads, parameter tweaks).',
           '• Q exits safely; status pane logs parameter + validation feedback.',
           '• Auto-saves capture every parameter change for later recovery.'
         ]
@@ -148,6 +168,46 @@ export class Interface extends EventEmitter {
     }
     this.helpPageIndex = (this.helpPageIndex + direction + pages.length) % pages.length;
     this._renderHelpOverlay();
+  }
+
+  updateHistory(entries = []) {
+    this.historyEntries = Array.isArray(entries) ? entries.slice(-200) : [];
+    if (this.historyVisible) {
+      this._renderHistoryOverlay();
+      this.screen.render();
+    }
+  }
+
+  _renderHistoryOverlay() {
+    if (!this.historyOverlay) {
+      return;
+    }
+    const entries = this.historyEntries || [];
+    if (entries.length === 0) {
+      this.historyOverlay.setContent('No history recorded yet.\n\n{dim}Ctrl+H closes{/dim}');
+      return;
+    }
+    const latest = entries.slice(-15).reverse();
+    const body = latest.map((entry) => this._formatHistoryEntry(entry)).join('\n');
+    this.historyOverlay.setContent(`${body}\n\n{dim}Ctrl+H closes{/dim}`);
+  }
+
+  _formatHistoryEntry(entry) {
+    if (!entry) {
+      return '';
+    }
+    const timestamp = entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString() : '—';
+    const label = entry.parameter || 'event';
+    const rawValue = entry.value;
+    let value;
+    if (typeof rawValue === 'object' && rawValue !== null) {
+      value = JSON.stringify(rawValue);
+    } else if (rawValue === undefined) {
+      value = '';
+    } else {
+      value = String(rawValue);
+    }
+    return `{bold}${timestamp}{/bold} ${label}${value ? ` → ${value}` : ''}`;
   }
 
   _registerControlEvents() {
@@ -359,6 +419,10 @@ export class Interface extends EventEmitter {
       this.helpVisible = !this.helpVisible;
       this.helpOverlay.hidden = !this.helpVisible;
       if (this.helpVisible) {
+        if (this.historyVisible) {
+          this.historyVisible = false;
+          this.historyOverlay.hidden = true;
+        }
         this.helpPageIndex = 0;
         this._renderHelpOverlay();
         this.showMessage('Help opened — use [ and ] to browse pages.');
@@ -369,6 +433,21 @@ export class Interface extends EventEmitter {
     });
     this.controls.on('helpNext', () => this._cycleHelp(1));
     this.controls.on('helpPrev', () => this._cycleHelp(-1));
+    this.controls.on('toggleHistory', () => {
+      this.historyVisible = !this.historyVisible;
+      this.historyOverlay.hidden = !this.historyVisible;
+      if (this.historyVisible) {
+        if (this.helpVisible) {
+          this.helpVisible = false;
+          this.helpOverlay.hidden = true;
+        }
+        this._renderHistoryOverlay();
+        this.showMessage('History opened — latest events listed.');
+      } else {
+        this.showMessage('History closed.');
+      }
+      this.screen.render();
+    });
     this.controls.on('saveMeasure', () => this.emit('saveMeasure'));
     this.controls.on('loadMeasure', () => this.emit('loadMeasure'));
     this.controls.on('newMeasure', () => this.emit('newMeasure'));
