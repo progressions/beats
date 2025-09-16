@@ -1,5 +1,6 @@
 import EventEmitter from 'events';
 import Speaker from 'speaker';
+import { Readable } from 'stream';
 import { AudioClock } from './timing.js';
 import { SwingController } from './swing.js';
 import { WarmthFilter } from './effects.js';
@@ -18,7 +19,7 @@ export class AudioEngine extends EventEmitter {
     this.filter = new WarmthFilter({ sampleRate });
     this.speaker = null;
     this.loopBuffer = null;
-    this.loopInterval = null;
+    this.loopStream = null;
     this.clock.on('beat', (data) => this.emit('beat', data));
   }
 
@@ -29,6 +30,9 @@ export class AudioEngine extends EventEmitter {
     this.filter.setWarmth(measure.warmth);
     this.loopBuffer = this.renderLoopBuffer();
     this.emit('measureChanged', this.measure);
+    if (this.speaker) {
+      this._restartLoopStream();
+    }
   }
 
   setTempo(tempo) {
@@ -36,6 +40,9 @@ export class AudioEngine extends EventEmitter {
     if (this.measure) {
       this.measure.tempo = tempo;
       this.loopBuffer = this.renderLoopBuffer();
+      if (this.speaker) {
+        this._restartLoopStream();
+      }
     }
   }
 
@@ -44,6 +51,9 @@ export class AudioEngine extends EventEmitter {
     if (this.measure) {
       this.measure.swing = amount;
       this.loopBuffer = this.renderLoopBuffer();
+      if (this.speaker) {
+        this._restartLoopStream();
+      }
     }
   }
 
@@ -52,6 +62,9 @@ export class AudioEngine extends EventEmitter {
     if (this.measure) {
       this.measure.warmth = amount;
       this.loopBuffer = this.renderLoopBuffer();
+      if (this.speaker) {
+        this._restartLoopStream();
+      }
     }
   }
 
@@ -67,15 +80,12 @@ export class AudioEngine extends EventEmitter {
       float: false
     });
     this.clock.start();
-    this._beginLoopPlayback();
+    this._startLoopStream();
     this.emit('start');
   }
 
   stop() {
-    if (this.loopInterval) {
-      clearInterval(this.loopInterval);
-      this.loopInterval = null;
-    }
+    this._stopLoopStream();
     if (this.speaker) {
       this.speaker.end();
       this.speaker = null;
@@ -132,21 +142,33 @@ export class AudioEngine extends EventEmitter {
     return output;
   }
 
-  _beginLoopPlayback() {
+  _startLoopStream() {
     if (!this.loopBuffer || !this.speaker) {
       return;
     }
-    const stepDurationBeats = 0.25;
-    const totalBeats = this.measure.loopLength * stepDurationBeats;
-    const loopDurationSeconds = beatsToSeconds(totalBeats, this.measure.tempo);
-    const loopDurationMs = Math.max(50, loopDurationSeconds * 1000);
-    const playBuffer = () => {
-      if (!this.speaker) {
-        return;
+    this._stopLoopStream();
+    const buffer = this.loopBuffer;
+    this.loopStream = new Readable({
+      read() {
+        this.push(Buffer.from(buffer));
       }
-      this.speaker.write(this.loopBuffer);
-    };
-    playBuffer();
-    this.loopInterval = setInterval(playBuffer, loopDurationMs);
+    });
+    this.loopStream.on('error', (error) => this.emit('error', error));
+    this.loopStream.pipe(this.speaker);
+  }
+
+  _stopLoopStream() {
+    if (this.loopStream) {
+      this.loopStream.unpipe(this.speaker);
+      this.loopStream.destroy();
+      this.loopStream = null;
+    }
+  }
+
+  _restartLoopStream() {
+    if (!this.speaker) {
+      return;
+    }
+    this._startLoopStream();
   }
 }
