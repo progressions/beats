@@ -14,13 +14,13 @@ export class AudioClock extends EventEmitter {
     this.timer = null;
   }
 
-  start() {
+  start(offsetBeats = 0) {
     if (this.isRunning) {
       return;
     }
     this.isRunning = true;
     this.nextEventTime = process.hrtime.bigint();
-    this.currentBeat = 0;
+    this.currentBeat = offsetBeats;
     this.timer = setInterval(() => this._tick(), this.scheduleInterval);
   }
 

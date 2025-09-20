@@ -22,6 +22,8 @@ export class AudioEngine extends EventEmitter {
     this.loopStream = null;
     this.loopChunkFrames = 2048;
     this._stopRequested = false;
+    this.loopStartOffset = 0;
+    this.startBeatOffset = 0;
     this.clock.on('beat', (data) => this.emit('beat', data));
   }
 
@@ -70,10 +72,13 @@ export class AudioEngine extends EventEmitter {
     }
   }
 
-  start() {
+  start({ startStep = 0, stepResolutionBeats = 0.25 } = {}) {
     if (!this.measure || this.speaker) {
       return;
     }
+    const { offsetBytes, offsetStep, offsetBeats } = this._computeStartOffset(startStep, stepResolutionBeats);
+    this.loopStartOffset = offsetBytes;
+    this.startBeatOffset = offsetBeats;
     this.speaker = new Speaker({
       channels: this.channels,
       sampleRate: this.sampleRate,
@@ -81,9 +86,9 @@ export class AudioEngine extends EventEmitter {
       signed: true,
       float: false
     });
-    this.clock.start();
+    this.clock.start(offsetBeats);
     this._startLoopStream();
-    this.emit('start');
+    this.emit('start', { offsetBeats, offsetStep });
   }
 
   stop() {
@@ -94,14 +99,16 @@ export class AudioEngine extends EventEmitter {
       this.speaker = null;
     }
     this.clock.stop();
+    this.loopStartOffset = 0;
+    this.startBeatOffset = 0;
     this.emit('stop');
   }
 
-  toggle() {
+  toggle(options = {}) {
     if (this.speaker) {
       this.stop();
     } else {
-      this.start();
+      this.start(options);
     }
   }
 
@@ -153,7 +160,11 @@ export class AudioEngine extends EventEmitter {
     this._stopRequested = false;
     const buffer = this.loopBuffer;
     const chunkBytes = Math.max(1, Math.min(buffer.length, this.loopChunkFrames * this.channels * 2));
-    let offset = 0;
+    let offset = this.loopStartOffset || 0;
+    if (offset >= buffer.length) {
+      offset = 0;
+    }
+    this.loopStartOffset = 0;
     const context = this;
     this.loopStream = new Readable({
       read() {
@@ -176,6 +187,26 @@ export class AudioEngine extends EventEmitter {
     });
     this.loopStream.on('error', (error) => this.emit('error', error));
     this.loopStream.pipe(this.speaker);
+  }
+
+  _computeStartOffset(startStep, stepResolutionBeats) {
+    if (!this.measure || !this.loopBuffer || this.loopBuffer.length === 0) {
+      return { offsetBytes: 0, offsetStep: 0, offsetBeats: 0 };
+    }
+    const totalSteps = Math.max(1, this.measure.loopLength);
+    const normalizedStep = ((startStep % totalSteps) + totalSteps) % totalSteps;
+    const resolution = stepResolutionBeats > 0 ? stepResolutionBeats : 0.25;
+    const beatOffset = normalizedStep * resolution;
+    const secondsOffset = beatsToSeconds(beatOffset, this.measure.tempo);
+    const sampleOffset = Math.floor(secondsOffset * this.sampleRate);
+    const frameOffset = sampleOffset * this.channels;
+    const byteOffset = Math.max(0, Math.min(frameOffset * 2, this.loopBuffer.length));
+    const safeOffset = this.loopBuffer.length > 0 ? byteOffset % this.loopBuffer.length : 0;
+    return {
+      offsetBytes: safeOffset,
+      offsetStep: normalizedStep,
+      offsetBeats: beatOffset
+    };
   }
 
   _stopLoopStream() {

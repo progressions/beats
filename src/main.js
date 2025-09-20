@@ -94,8 +94,8 @@ async function run() {
     }, 100);
   });
 
-  ui.on('togglePlayback', () => {
-    audioEngine.toggle();
+  ui.on('togglePlayback', ({ cursorStep = 0, stepResolutionBeats = 0.25 } = {}) => {
+    audioEngine.toggle({ startStep: cursorStep, stepResolutionBeats });
   });
 
   ui.on('saveMeasure', async () => {
@@ -258,8 +258,8 @@ async function run() {
     scheduleAutoSave('note');
   });
 
-  audioEngine.on('start', () => {
-    ui.setPlaying(true);
+  audioEngine.on('start', (payload = {}) => {
+    ui.setPlaying(true, payload);
     ui.showMessage('Playback started.');
   });
   audioEngine.on('stop', () => {
