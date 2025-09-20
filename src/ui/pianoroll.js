@@ -1,6 +1,5 @@
 import blessed from 'blessed';
 import chalk from 'chalk';
-import { createPastelGradient } from './gradient.js';
 import { colors, colorize } from './colors.js';
 import { noteNameFromMidi } from '../utils/music.js';
 
@@ -47,7 +46,6 @@ export class PianoRollView {
     }
     const palette = colors();
     const width = Math.max(10, (this.box.width || this.screen.width) - 4);
-    const gradient = createPastelGradient(width, measure.warmth, gradientPhase);
     const stepWidth = Math.max(1, Math.floor(width / measure.loopLength));
     const timeline = new Array(width).fill('─');
     const beatSpan = measure.loopLength;
@@ -65,18 +63,19 @@ export class PianoRollView {
       const lengthSteps = Math.max(1, Math.round(durationBeats / 0.25));
       const span = Math.max(1, Math.round(lengthSteps * stepWidth));
       const channelIndex = clampChannel(note.channel, channelLines.length);
+      const color = this._pitchColor(note.midi);
       for (let offset = 0; offset < span && startColumn + offset < width; offset += 1) {
         const columnIndex = startColumn + offset;
-        channelLines[channelIndex][columnIndex] = gradient(columnIndex, char);
+        channelLines[channelIndex][columnIndex] = chalk.hex(color)(char);
       }
     });
 
     const cursorColumn = Math.min(width - 1, Math.floor(cursorStep * stepWidth));
     const cursorChar = cursorStep % 4 === 0 ? '◆' : '◇';
     if (channelLines[currentChannel]) {
-      channelLines[currentChannel][cursorColumn] = gradient(cursorColumn, cursorChar);
+      channelLines[currentChannel][cursorColumn] = chalk.hex(this._cursorColor())(cursorChar);
     }
-    timeline[cursorColumn] = gradient(cursorColumn, cursorChar);
+    timeline[cursorColumn] = chalk.hex(this._cursorColor())(cursorChar);
 
     if (isPlaying) {
       const playPosition = (playheadStep + playheadOffset) * stepWidth;
@@ -190,6 +189,67 @@ export class PianoRollView {
 
     this.box.setContent(lines.join('\n'));
   }
+
+  _cursorColor() {
+    return '#f8e6a7';
+  }
+
+  _pitchColor(midi) {
+    const palette = this._pitchPalette();
+    const index = ((Number(midi) % palette.length) + palette.length) % palette.length;
+    return palette[index];
+  }
+
+  _pitchPalette() {
+    if (!this._pitchColors) {
+      const colors = [];
+      const steps = 12;
+      for (let i = 0; i < steps; i += 1) {
+        const hue = (i * 360) / steps;
+        colors.push(hslToHex(hue, 70, 55));
+      }
+      this._pitchColors = colors;
+    }
+    return this._pitchColors;
+  }
+}
+
+function hslToHex(h, s, l) {
+  const saturation = s / 100;
+  const lightness = l / 100;
+
+  const hueToRgb = (p, q, t) => {
+    let temp = t;
+    if (temp < 0) temp += 1;
+    if (temp > 1) temp -= 1;
+    if (temp < 1 / 6) return p + (q - p) * 6 * temp;
+    if (temp < 1 / 2) return q;
+    if (temp < 2 / 3) return p + (q - p) * (2 / 3 - temp) * 6;
+    return p;
+  };
+
+  let r;
+  let g;
+  let b;
+
+  if (saturation === 0) {
+    r = g = b = lightness;
+  } else {
+    const q = lightness < 0.5 ? lightness * (1 + saturation) : lightness + saturation - lightness * saturation;
+    const p = 2 * lightness - q;
+    const hue = h / 360;
+    r = hueToRgb(p, q, hue + 1 / 3);
+    g = hueToRgb(p, q, hue);
+    b = hueToRgb(p, q, hue - 1 / 3);
+  }
+
+  const toHex = (value) => {
+    const channel = Math.round(value * 255);
+    const hex = channel.toString(16).padStart(2, '0');
+    return hex;
+  };
+
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
 function padLabel(text) {
