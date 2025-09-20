@@ -98,8 +98,8 @@ export class PianoRollView {
       const fitted = fitLabel(nameWithIndicator, LABEL_WIDTH);
       let label;
       if (isMuted) {
-        const baseColor = index === currentChannel ? palette.accent : palette.text;
-        label = chalk.hex(baseColor).dim(fitted);
+        const mutedColor = '#6c6a74';
+        label = chalk.hex(mutedColor)(fitted);
       } else if (index === currentChannel) {
         label = colorize(fitted, 'accent');
       } else {
