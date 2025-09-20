@@ -1,5 +1,5 @@
 import { v4 as uuid } from 'uuid';
-import { NOTE_DURATIONS, totalBeats } from '../utils/timing.js';
+import { NOTE_DURATIONS, durationToBeats, totalBeats } from '../utils/timing.js';
 import { noteToMidi } from '../utils/music.js';
 
 export class NoteEvent {
@@ -38,7 +38,7 @@ export class NoteEvent {
     if (NOTE_DURATIONS[this.duration]) {
       return NOTE_DURATIONS[this.duration];
     }
-    return 1;
+    return durationToBeats(this.duration);
   }
 
   get midi() {

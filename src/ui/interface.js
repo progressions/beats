@@ -1235,7 +1235,7 @@ export class Interface extends EventEmitter {
 
     // Find the next note with the same pitch and channel
     const currentPitch = currentNote.pitch;
-    const currentEndStep = this.cursorStep + Math.round(durationToBeats(currentNote.duration) / this.stepResolutionBeats);
+    const currentEndStep = currentNote.step + Math.round(durationToBeats(currentNote.duration) / this.stepResolutionBeats);
 
     // Look for a note that starts at or near where the current note ends
     let targetNote = null;

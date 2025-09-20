@@ -22,16 +22,41 @@ export function secondsToBeats(seconds, tempo) {
   return seconds * (tempo / 60);
 }
 
+function greatestCommonDivisor(a, b) {
+  let x = Math.abs(a);
+  let y = Math.abs(b);
+
+  while (y !== 0) {
+    const remainder = x % y;
+    x = y;
+    y = remainder;
+  }
+
+  return x || 1;
+}
+
 export function durationToBeats(duration) {
   if (typeof duration === 'number') {
     return duration;
+  }
+  const numeric = Number(duration);
+  if (!Number.isNaN(numeric)) {
+    return numeric;
   }
   const mapped = NOTE_DURATIONS[duration];
   if (mapped) {
     return mapped;
   }
-  const [num, denom] = duration.split('/').map((part) => math.number(part));
-  return num / denom * 4;
+  const parts = duration.split('/');
+  if (parts.length === 2) {
+    const [numPart, denomPart] = parts;
+    const num = math.number(numPart);
+    const denom = math.number(denomPart);
+    if (Number.isFinite(num) && Number.isFinite(denom) && denom !== 0) {
+      return (num / denom) * 4;
+    }
+  }
+  return 1;
 }
 
 export function quantizeToGrid(value, grid) {
@@ -77,12 +102,19 @@ export function beatsToDuration(beats) {
     }
   }
 
-  // If no exact match, return fractional representation
-  const fraction = beats / 4; // Convert to whole note fractions
-  if (fraction >= 1) {
-    return `${fraction}/1`;
-  } else {
-    const denominator = Math.round(1 / fraction);
-    return `1/${denominator}`;
+  const stepResolution = 0.25; // Sixteenth note resolution expressed in beats
+  const tolerance = 0.001;
+  const steps = Math.round(beats / stepResolution);
+  const approxBeats = steps * stepResolution;
+
+  if (steps > 0 && Math.abs(approxBeats - beats) < tolerance) {
+    const wholeNoteSteps = Math.round(4 / stepResolution);
+    const divisor = greatestCommonDivisor(steps, wholeNoteSteps);
+    const numerator = steps / divisor;
+    const denominator = wholeNoteSteps / divisor;
+    return `${numerator}/${denominator}`;
   }
+
+  // Fall back to a decimal representation when no neat fraction fits
+  return parseFloat(beats.toFixed(3)).toString();
 }
