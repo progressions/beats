@@ -22,20 +22,94 @@ async function loadDefaults() {
   return fs.readJson(defaultsPath);
 }
 
+async function findMostRecentFile() {
+  try {
+    const [measureFiles, sessionFiles] = await Promise.all([listMeasures(), listSessions()]);
+
+    if (measureFiles.length === 0 && sessionFiles.length === 0) {
+      return null;
+    }
+
+    let mostRecentFile = null;
+    let mostRecentTime = 0;
+    let mostRecentType = null;
+
+    // Check measure files
+    for (const file of measureFiles) {
+      try {
+        const stats = await fs.stat(file);
+        if (stats.mtime.getTime() > mostRecentTime) {
+          mostRecentTime = stats.mtime.getTime();
+          mostRecentFile = file;
+          mostRecentType = 'measure';
+        }
+      } catch (error) {
+        // Skip files that can't be read
+      }
+    }
+
+    // Check session files (already sorted by timestamp, so check first few)
+    for (const file of sessionFiles.slice(0, 5)) {
+      try {
+        const stats = await fs.stat(file);
+        if (stats.mtime.getTime() > mostRecentTime) {
+          mostRecentTime = stats.mtime.getTime();
+          mostRecentFile = file;
+          mostRecentType = 'session';
+        }
+      } catch (error) {
+        // Skip files that can't be read
+      }
+    }
+
+    return mostRecentFile ? { file: mostRecentFile, type: mostRecentType, mtime: mostRecentTime } : null;
+  } catch (error) {
+    return null;
+  }
+}
+
 async function run() {
   await ensureDirectories();
   const defaults = await loadDefaults();
-  let currentMeasure = new Measure({
-    name: 'Untitled',
-    tempo: defaults.tempo,
-    timeSignature: defaults.timeSignature,
-    loopLength: defaults.loopLength,
-    swing: defaults.swing,
-    warmth: defaults.warmth,
-    key: defaults.key,
-    scale: defaults.scale
-  });
-  let parameterHistory = [...currentMeasure.history];
+
+  // Try to load the most recent file
+  let currentMeasure;
+  let parameterHistory = [];
+  let loadedFromFile = false;
+
+  const recentFile = await findMostRecentFile();
+  if (recentFile) {
+    try {
+      if (recentFile.type === 'session') {
+        const { measure, history } = await loadSessionMeasure(recentFile.file);
+        currentMeasure = measure;
+        parameterHistory = Array.isArray(history) ? [...history] : [...measure.history];
+        loadedFromFile = true;
+      } else {
+        currentMeasure = await loadMeasure(recentFile.file);
+        parameterHistory = [...currentMeasure.history];
+        loadedFromFile = true;
+      }
+    } catch (error) {
+      // Fall back to default measure if loading fails
+      loadedFromFile = false;
+    }
+  }
+
+  // Create default measure if no recent file or loading failed
+  if (!loadedFromFile) {
+    currentMeasure = new Measure({
+      name: 'Untitled',
+      tempo: defaults.tempo,
+      timeSignature: defaults.timeSignature,
+      loopLength: defaults.loopLength,
+      swing: defaults.swing,
+      warmth: defaults.warmth,
+      key: defaults.key,
+      scale: defaults.scale
+    });
+    parameterHistory = [...currentMeasure.history];
+  }
   let autoSaveTimer = null;
   let pendingAutoSaveReason = 'init';
   const AUTO_SAVE_DELAY = 3000;
@@ -48,6 +122,16 @@ async function run() {
 
   const ui = new Interface({ measure: currentMeasure, audioEngine, defaults });
   ui.updateHistory(parameterHistory);
+
+  // Show startup message
+  if (loadedFromFile && recentFile) {
+    const fileName = path.basename(recentFile.file);
+    const fileType = recentFile.type === 'session' ? 'session' : 'measure';
+    const measureName = currentMeasure.name || 'Untitled';
+    ui.showMessage(`Loaded recent ${fileType}: ${measureName} (${fileName})`);
+  } else {
+    ui.showMessage('Started with new measure.');
+  }
 
   const scheduleAutoSave = (reason = 'parameter') => {
     pendingAutoSaveReason = reason;

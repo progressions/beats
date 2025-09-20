@@ -6,7 +6,7 @@ import { ParameterPanel } from './parameters.js';
 import { ControlHandler } from './controls.js';
 import { colors, colorize } from './colors.js';
 import { nextInArray, getAvailableKeys, getAvailableScales, getScaleDefinition, noteToMidi, noteNameFromMidi } from '../utils/music.js';
-import { clamp, durationToBeats, secondsToBeats } from '../utils/timing.js';
+import { clamp, durationToBeats, beatsToDuration, secondsToBeats } from '../utils/timing.js';
 import { Measure } from '../data/measure.js';
 
 export class Interface extends EventEmitter {
@@ -18,6 +18,7 @@ export class Interface extends EventEmitter {
     this.cursorStep = 0;
     this.currentPitch = defaults.baseMidi || 60;
     this.currentDuration = defaults.duration || '1/4';
+    this.currentQuantization = defaults.quantization || '1/16';
     this.stepResolutionBeats = 0.25;
     this.isPlaying = false;
     this.playheadStep = 0;
@@ -102,8 +103,8 @@ export class Interface extends EventEmitter {
 
   _buildHelpText() {
     return [
-      '{bold}Space{/bold} Play/Pause  {bold}P{/bold} Add note  {bold}Del{/bold} Remove  {bold}← →{/bold} Move cursor',
-      '{bold}↑ ↓{/bold} Channel  {bold}+/-{/bold} Pitch ±  {bold}T{/bold} Tempo ±5  {bold}W{/bold} Swing  {bold}L{/bold} Loop  {bold}D/Shift+D{/bold} Duration ±',
+      '{bold}Space{/bold} Play/Pause  {bold}P{/bold} Add note  {bold}Del{/bold} Remove  {bold}I{/bold} Tie notes  {bold}← →{/bold} Move cursor',
+      '{bold}↑ ↓{/bold} Channel  {bold}+/-{/bold} Pitch ±  {bold}T{/bold} Tempo ±5  {bold}W{/bold} Swing  {bold}L{/bold} Loop  {bold}D/Shift+D{/bold} Duration ±  {bold}Q/Shift+Q{/bold} Quantization ±',
       '{bold}K{/bold} Key  {bold}S{/bold} Scale  {bold}R{/bold} Warmth ±  {bold}3/4{/bold} Time Sig  {bold}Ctrl+S/F5{/bold} Save  {bold}Ctrl+O/Ctrl+L/F6{/bold} Load  {bold}Ctrl+N{/bold} New  {bold}Ctrl+H{/bold} History  {bold}[{/bold} start {bold}]{/bold} end  {bold}C{/bold} Copy  {bold}Ctrl+V{/bold} Paste  {bold}Ctrl+Z/Y{/bold} Undo/Redo  {bold}H{/bold} Help'
     ].join('\n');
   }
@@ -239,6 +240,14 @@ export class Interface extends EventEmitter {
       let target = this.cursorStep + delta * stepIncrement;
       target = clamp(target, 0, maxStep);
       this.cursorStep = this._snapToStepGrid(target, stepIncrement);
+
+      if (this.measure) {
+        const notes = this.measure.notesAtStep(this.cursorStep, this.currentChannel);
+        if (notes.length > 0) {
+          this.currentPitch = notes[0].pitch;
+        }
+      }
+
       this.parameters.markChanged('position');
       this.refresh();
     });
@@ -247,35 +256,12 @@ export class Interface extends EventEmitter {
         return;
       }
       const nextPitch = this._shiftPitch(this.currentPitch, delta);
-      let noteChanged = false;
-      if (this.measure) {
-        const notes = this.measure.notesAtStep(this.cursorStep, this.currentChannel);
-        if (notes.length > 0) {
-          this._saveUndoSnapshot('adjust pitch');
-        }
-        notes.forEach((note) => {
-          const updated = this._shiftPitch(note.pitch, delta);
-          if (updated !== note.pitch) {
-            note.pitch = updated;
-            noteChanged = true;
-          }
-        });
-        if (noteChanged) {
-          this.measure.recordHistory({
-            parameter: 'note',
-            value: `adjust pitch @${this.cursorStep}`
-          });
-          this.measure.touch();
-          this.audioEngine.loopBuffer = this.audioEngine.renderLoopBuffer();
-          this.emit('noteChange', { type: 'update', step: this.cursorStep });
-        }
-      }
-      if (nextPitch === this.currentPitch && !noteChanged) {
+      if (nextPitch === this.currentPitch) {
         this.showMessage('Pitch limit reached for current scale.');
         return;
       }
       this.currentPitch = nextPitch;
-      this.showMessage(`Cursor pitch → ${noteNameFromMidi(this.currentPitch)}`);
+      this.showMessage(`Next Note → ${noteNameFromMidi(this.currentPitch)}`);
       this.refresh();
     });
     this.controls.on('addNote', () => {
@@ -333,6 +319,12 @@ export class Interface extends EventEmitter {
         this.emit('noteChange', { type: 'delete', step: this.cursorStep });
       }
       this.refresh();
+    });
+    this.controls.on('tieNote', () => {
+      if (!this.measure) {
+        return;
+      }
+      this._performNoteTie();
     });
     this.controls.on('tempoChange', (delta) => {
       if (!this.measure) {
@@ -432,9 +424,15 @@ export class Interface extends EventEmitter {
     });
     this.controls.on('changeDuration', (duration) => {
       this.currentDuration = duration;
-      this.cursorStep = this._snapToStepGrid(this.cursorStep, this._cursorStepIncrement());
       this.showMessage(`Duration set to ${duration}`);
       this._recordParameterChange('duration', duration);
+      this.refresh();
+    });
+    this.controls.on('changeQuantization', (quantization) => {
+      this.currentQuantization = quantization;
+      this.cursorStep = this._snapToStepGrid(this.cursorStep, this._cursorStepIncrement());
+      this.showMessage(`Quantization set to ${quantization}`);
+      this._recordParameterChange('quantization', quantization);
       this.parameters.markChanged('position');
       this.refresh();
     });
@@ -554,6 +552,12 @@ export class Interface extends EventEmitter {
         return;
       }
       this.currentChannel = next;
+
+      const notes = this.measure.notesAtStep(this.cursorStep, this.currentChannel);
+      if (notes.length > 0) {
+        this.currentPitch = notes[0].pitch;
+      }
+
       const channelInfo = this.measure.channelInfo(this.currentChannel);
       this._recordParameterChange('channel', channelInfo.name || `Ch${this.currentChannel + 1}`);
       this.showMessage(`Channel → ${channelInfo.name || `Ch${this.currentChannel + 1}`}`);
@@ -602,6 +606,7 @@ export class Interface extends EventEmitter {
     }
     this.parameters.update(this.measure, {
       currentDuration: this.currentDuration,
+      currentQuantization: this.currentQuantization,
       currentPitch: displayPitch,
       currentChannel: this.currentChannel,
       cursorStep: this.cursorStep,
@@ -719,7 +724,7 @@ export class Interface extends EventEmitter {
   }
 
   _cursorStepIncrement() {
-    const beats = durationToBeats(this.currentDuration);
+    const beats = durationToBeats(this.currentQuantization);
     const steps = Math.max(1, Math.round(beats / this.stepResolutionBeats));
     return steps;
   }
@@ -1133,6 +1138,7 @@ export class Interface extends EventEmitter {
       cursorStep: this.cursorStep,
       currentPitch: this.currentPitch,
       currentDuration: this.currentDuration,
+      currentQuantization: this.currentQuantization,
       currentChannel: this.currentChannel,
       actionType,
       timestamp: new Date().toISOString()
@@ -1158,6 +1164,7 @@ export class Interface extends EventEmitter {
       cursorStep: this.cursorStep,
       currentPitch: this.currentPitch,
       currentDuration: this.currentDuration,
+      currentQuantization: this.currentQuantization,
       currentChannel: this.currentChannel,
       actionType: 'current',
       timestamp: new Date().toISOString()
@@ -1187,6 +1194,7 @@ export class Interface extends EventEmitter {
       cursorStep: this.cursorStep,
       currentPitch: this.currentPitch,
       currentDuration: this.currentDuration,
+      currentQuantization: this.currentQuantization,
       currentChannel: this.currentChannel,
       actionType: 'current',
       timestamp: new Date().toISOString()
@@ -1210,10 +1218,66 @@ export class Interface extends EventEmitter {
     this.cursorStep = snapshot.cursorStep;
     this.currentPitch = snapshot.currentPitch;
     this.currentDuration = snapshot.currentDuration;
+    this.currentQuantization = snapshot.currentQuantization || '1/16';
     this.currentChannel = snapshot.currentChannel;
 
     this.audioEngine.loopBuffer = this.audioEngine.renderLoopBuffer();
     this.emit('measureChange', { type: 'undo', measure: this.measure });
+    this.refresh();
+  }
+
+  _performNoteTie() {
+    const currentNote = this.measure.notesAtStep(this.cursorStep, this.currentChannel)[0];
+    if (!currentNote) {
+      this.showMessage('No note at cursor to tie.');
+      return;
+    }
+
+    // Find the next note with the same pitch and channel
+    const currentPitch = currentNote.pitch;
+    const currentEndStep = this.cursorStep + Math.round(durationToBeats(currentNote.duration) / this.stepResolutionBeats);
+
+    // Look for a note that starts at or near where the current note ends
+    let targetNote = null;
+    const tolerance = 2; // Allow some tolerance in step matching
+
+    for (let step = currentEndStep - tolerance; step <= currentEndStep + tolerance; step++) {
+      const candidates = this.measure.notesAtStep(step, this.currentChannel);
+      const matching = candidates.find(note => note.pitch === currentPitch && note.id !== currentNote.id);
+      if (matching) {
+        targetNote = matching;
+        break;
+      }
+    }
+
+    if (!targetNote) {
+      this.showMessage('No matching note found to tie to.');
+      return;
+    }
+
+    this._saveUndoSnapshot('tie notes');
+
+    // Calculate combined duration
+    const firstDuration = durationToBeats(currentNote.duration);
+    const secondDuration = durationToBeats(targetNote.duration);
+    const combinedBeats = firstDuration + secondDuration;
+    const newDuration = beatsToDuration(combinedBeats);
+
+    // Update the first note with the combined duration
+    currentNote.duration = newDuration;
+
+    // Remove the second note
+    this.measure.removeNote(targetNote.id);
+
+    this.measure.touch();
+    this.measure.recordHistory({
+      parameter: 'note',
+      value: `tie notes @${this.cursorStep} → ${newDuration}`
+    });
+
+    this.audioEngine.loopBuffer = this.audioEngine.renderLoopBuffer();
+    this.showMessage(`Tied notes → ${newDuration}`);
+    this.emit('noteChange', { type: 'tie', step: this.cursorStep });
     this.refresh();
   }
 

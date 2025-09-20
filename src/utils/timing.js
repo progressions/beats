@@ -5,9 +5,13 @@ const math = create(all, {});
 export const NOTE_DURATIONS = {
   '1/16': 0.25,
   '1/8': 0.5,
+  '1/8.': 0.75,
   '1/4': 1,
+  '1/4.': 1.5,
   '1/2': 2,
-  '1/1': 4
+  '1/2.': 3,
+  '1/1': 4,
+  '1/1.': 6
 };
 
 export function beatsToSeconds(beats, tempo) {
@@ -63,4 +67,22 @@ export function formatTempo(tempo) {
 
 export function formatSwing(swing) {
   return `${Math.round(swing * 100)}%`;
+}
+
+export function beatsToDuration(beats) {
+  // Find exact match in NOTE_DURATIONS first
+  for (const [duration, value] of Object.entries(NOTE_DURATIONS)) {
+    if (Math.abs(value - beats) < 0.001) {
+      return duration;
+    }
+  }
+
+  // If no exact match, return fractional representation
+  const fraction = beats / 4; // Convert to whole note fractions
+  if (fraction >= 1) {
+    return `${fraction}/1`;
+  } else {
+    const denominator = Math.round(1 / fraction);
+    return `1/${denominator}`;
+  }
 }

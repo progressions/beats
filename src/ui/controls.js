@@ -1,13 +1,14 @@
 import EventEmitter from 'events';
 
 const LOOP_OPTIONS = [16, 32, 64, 128, 256];
-const DURATION_ORDER = ['1/16', '1/8', '1/4', '1/2', '1/1'];
+const DURATION_ORDER = ['1/16', '1/8', '1/8.', '1/4', '1/4.', '1/2', '1/2.', '1/1', '1/1.'];
 
 export class ControlHandler extends EventEmitter {
   constructor(screen) {
     super();
     this.screen = screen;
     this.durationIndex = 2;
+    this.quantizationIndex = 0;
     this.loopIndex = Math.max(0, LOOP_OPTIONS.indexOf(16));
     this._registerEvents();
   }
@@ -41,6 +42,7 @@ export class ControlHandler extends EventEmitter {
     this.screen.key(['a', 'b', 'c', 'd', 'e', 'f', 'g'], (ch) => {
       this.emit('selectNoteLetter', ch);
     });
+    this.screen.key(['i', 'I'], () => this.emit('tieNote'));
 
     this.screen.key(['t'], () => this.emit('tempoChange', 5));
     this.screen.key(['T', 'S-t', 'shift-t'], () => this.emit('tempoChange', -5));
@@ -70,6 +72,16 @@ export class ControlHandler extends EventEmitter {
     this.screen.key(['D', 'S-d', 'shift-d'], () => {
       this.durationIndex = (this.durationIndex - 1 + DURATION_ORDER.length) % DURATION_ORDER.length;
       this.emit('changeDuration', DURATION_ORDER[this.durationIndex]);
+    });
+
+    this.screen.key(['q'], () => {
+      this.quantizationIndex = (this.quantizationIndex + 1) % DURATION_ORDER.length;
+      this.emit('changeQuantization', DURATION_ORDER[this.quantizationIndex]);
+    });
+
+    this.screen.key(['Q', 'S-q', 'shift-q'], () => {
+      this.quantizationIndex = (this.quantizationIndex - 1 + DURATION_ORDER.length) % DURATION_ORDER.length;
+      this.emit('changeQuantization', DURATION_ORDER[this.quantizationIndex]);
     });
 
     this.screen.key(['3'], () => this.emit('changeTimeSignature', { beats: 3, division: 4 }));

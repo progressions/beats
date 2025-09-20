@@ -5,9 +5,13 @@ import { formatTempo } from '../utils/timing.js';
 const DURATION_DISPLAY = {
   '1/16': '♬ 16th',
   '1/8': '♫ 8th',
+  '1/8.': '♫. Dotted 8th',
   '1/4': '♩ Quarter',
+  '1/4.': '♩. Dotted Quarter',
   '1/2': '♪ Half',
-  '1/1': '𝅝 Whole'
+  '1/2.': '♪. Dotted Half',
+  '1/1': '𝅝 Whole',
+  '1/1.': '𝅝. Dotted Whole'
 };
 
 function capitalize(value = '') {
@@ -79,6 +83,7 @@ export class ParameterPanel {
     measure,
     {
       currentDuration = '1/4',
+      currentQuantization = '1/16',
       currentPitch,
       currentChannel = 0,
       cursorStep = 0,
@@ -102,6 +107,7 @@ export class ParameterPanel {
     const positionBeats = cursorStep * stepResolutionBeats;
     const channelInfo = measure.channelInfo(currentChannel);
     const durationLabel = DURATION_DISPLAY[currentDuration] || currentDuration;
+    const quantizationLabel = DURATION_DISPLAY[currentQuantization] || currentQuantization;
 
     const rowOne = [
       this._formatField('key', 'Key', `${measure.key.toUpperCase()}`),
@@ -125,6 +131,7 @@ export class ParameterPanel {
     const rowTwo = [
       this._formatField('warmth', 'Warmth', `${(measure.warmth * 100).toFixed(0)}%`),
       this._formatField('duration', 'Duration', durationLabel),
+      this._formatField('quantization', 'Grid', quantizationLabel),
       this._formatField(
         'channel',
         'Channel',
