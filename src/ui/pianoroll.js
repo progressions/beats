@@ -107,9 +107,9 @@ export class PianoRollView {
         const name = noteNameFromMidi(note.midi);
         return `• Ch${(note.channel ?? 0) + 1} step ${note.step} → ${name} (${note.duration})`;
       });
-      const maxVisible = 32;
+      const maxVisible = 64;
       const visibleCues = cues.slice(0, maxVisible);
-      const columnTarget = 4;
+      const columnTarget = 8;
       const columnCount = Math.min(columnTarget, visibleCues.length);
       if (columnCount <= 1) {
         visibleCues.forEach((cue) => {
