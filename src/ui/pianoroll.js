@@ -283,25 +283,11 @@ function clampChannel(channel, count) {
 
 function buildBeatMarkers(loopLength, stepWidth, width) {
   const markers = new Array(width).fill(' ');
-  const stepToBeat = 0.25;
+  const pattern = ['1', '.', '1', '.', '2', '.', '2', '.', '3', '.', '3', '.', '4', '.', '4', '.'];
   for (let step = 0; step < loopLength; step += 1) {
-    const beatPosition = step * stepToBeat + 1;
-    if (Math.abs((beatPosition * 2) % 1) > 0.01) {
-      continue;
-    }
     const column = Math.min(width - 1, Math.floor(step * stepWidth));
-    const label = beatPosition.toFixed(1);
-    placeLabel(markers, column, label);
+    const char = pattern[step % pattern.length];
+    markers[column] = char;
   }
   return markers.join('');
-}
-
-function placeLabel(array, startIndex, text) {
-  const chars = text.split('');
-  chars.forEach((char, offset) => {
-    const index = startIndex + offset;
-    if (index < array.length) {
-      array[index] = char;
-    }
-  });
 }
