@@ -571,9 +571,17 @@ export class Interface extends EventEmitter {
       selection: this._activeSelectionBounds()
     });
     const pitchLabel = noteNameFromMidi(this.currentPitch);
+    let displayPitch = pitchLabel;
+    if (this.measure) {
+      const hoveredNotes = this.measure.notesAtStep(this.cursorStep, this.currentChannel);
+      if (hoveredNotes.length > 0) {
+        const first = hoveredNotes[0];
+        displayPitch = noteNameFromMidi(first.midi);
+      }
+    }
     this.parameters.update(this.measure, {
       currentDuration: this.currentDuration,
-      currentPitch: pitchLabel,
+      currentPitch: displayPitch,
       currentChannel: this.currentChannel,
       cursorStep: this.cursorStep,
       stepResolutionBeats: this.stepResolutionBeats,
