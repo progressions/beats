@@ -96,7 +96,7 @@ export class Interface extends EventEmitter {
     return [
       '{bold}Space{/bold} Play/Pause  {bold}P{/bold} Add note  {bold}Del{/bold} Remove  {bold}← →{/bold} Move cursor',
       '{bold}↑ ↓{/bold} Channel  {bold}+/-{/bold} Pitch ±  {bold}T{/bold} Tempo ±5  {bold}W{/bold} Swing  {bold}L{/bold} Loop  {bold}D{/bold} Duration',
-      '{bold}K{/bold} Key  {bold}S{/bold} Scale  {bold}R{/bold} Warmth ±  {bold}3/4{/bold} Time Sig  {bold}Ctrl+S/F5{/bold} Save  {bold}Ctrl+O/Ctrl+L/F6{/bold} Load  {bold}Ctrl+N{/bold} New  {bold}Ctrl+H{/bold} History  {bold}[ ]{/bold} Help Pages  {bold}H{/bold} Help'
+      '{bold}K{/bold} Key  {bold}S{/bold} Scale  {bold}R{/bold} Warmth ±  {bold}3/4{/bold} Time Sig  {bold}Ctrl+S/F5{/bold} Save  {bold}Ctrl+O/Ctrl+L/F6{/bold} Load  {bold}Ctrl+N{/bold} New  {bold}Ctrl+H{/bold} History  {bold}[{/bold} start {bold}]{/bold} end  {bold}H{/bold} Help'
     ].join('\n');
   }
 
@@ -133,7 +133,7 @@ export class Interface extends EventEmitter {
       {
         title: 'Navigation & Help',
         lines: [
-          '• [ and ] cycle these help pages while visible.',
+          '• [ and ] jump to start/end; while help is open they page through tips.',
           '• Ctrl+H opens the history log (saves, loads, parameter tweaks).',
           '• Q exits safely; status pane logs parameter + validation feedback.',
           '• Auto-saves capture every parameter change for later recovery.'
@@ -170,6 +170,7 @@ export class Interface extends EventEmitter {
     }
     this.helpPageIndex = (this.helpPageIndex + direction + pages.length) % pages.length;
     this._renderHelpOverlay();
+    this.screen.render();
   }
 
   updateHistory(entries = []) {
@@ -444,8 +445,20 @@ export class Interface extends EventEmitter {
       }
       this.screen.render();
     });
-    this.controls.on('helpNext', () => this._cycleHelp(1));
-    this.controls.on('helpPrev', () => this._cycleHelp(-1));
+    this.controls.on('helpNext', () => {
+      if (this.helpVisible) {
+        this._cycleHelp(1);
+      } else {
+        this._jumpToLoopEnd();
+      }
+    });
+    this.controls.on('helpPrev', () => {
+      if (this.helpVisible) {
+        this._cycleHelp(-1);
+      } else {
+        this._jumpToLoopStart();
+      }
+    });
     this.controls.on('toggleHistory', () => {
       this.historyVisible = !this.historyVisible;
       this.historyOverlay.hidden = !this.historyVisible;
@@ -768,6 +781,39 @@ export class Interface extends EventEmitter {
       this.gradientPhase = 0;
       this.playheadOffset = 0;
     }
+  }
+
+  _jumpToLoopStart() {
+    this._jumpToLoopPosition(0, 'Jumped to loop start.');
+  }
+
+  _jumpToLoopEnd() {
+    if (!this.measure) {
+      return;
+    }
+    const target = Math.max(0, this.measure.loopLength - 1);
+    this._jumpToLoopPosition(target, 'Jumped to loop end.');
+  }
+
+  _jumpToLoopPosition(step, message) {
+    if (!this.measure) {
+      return;
+    }
+    const maxStep = Math.max(0, this.measure.loopLength - 1);
+    const targetStep = clamp(step, 0, maxStep);
+    this.cursorStep = targetStep;
+    this.parameters.markChanged('position');
+    const beatOffset = targetStep * this.stepResolutionBeats;
+    if (this.isPlaying && this.audioEngine) {
+      this.audioEngine.stop();
+      this.audioEngine.start({ startStep: targetStep, stepResolutionBeats: this.stepResolutionBeats });
+    } else {
+      this.playheadStep = targetStep;
+      this.playheadOffset = 0;
+      this.playheadStartBeats = beatOffset;
+    }
+    this.showMessage(message);
+    this.refresh();
   }
 
   _scalePitchClasses() {
