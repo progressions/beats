@@ -1,4 +1,5 @@
 import blessed from 'blessed';
+import chalk from 'chalk';
 import { createPastelGradient } from './gradient.js';
 import { colors, colorize } from './colors.js';
 import { noteNameFromMidi } from '../utils/music.js';
@@ -34,13 +35,15 @@ export class PianoRollView {
       playheadOffset = 0,
       isPlaying = false,
       gradientPhase = 0,
-      currentChannel = 0
+      currentChannel = 0,
+      mutedChannels = new Set()
     } = {}
   ) {
     if (!measure) {
       this.box.setContent('Load or create a measure to begin.');
       return;
     }
+    const palette = colors();
     const width = Math.max(10, (this.box.width || this.screen.width) - 4);
     const gradient = createPastelGradient(width, measure.warmth, gradientPhase);
     const stepWidth = Math.max(1, Math.floor(width / measure.loopLength));
@@ -89,9 +92,19 @@ export class PianoRollView {
     lines.push(`${padLabel('Beat')}│ ${beatMarkers}`);
     lines.push(`${padLabel('Timeline')}│ ${timeline.join('')}`);
     measure.channels.forEach((channel, index) => {
-      const name = channel.name || `Ch${index + 1}`;
-      const fitted = fitLabel(name, LABEL_WIDTH);
-      const label = index === currentChannel ? colorize(fitted, 'accent') : fitted;
+      const baseName = channel.name || `Ch${index + 1}`;
+      const isMuted = mutedChannels && mutedChannels.has(index);
+      const nameWithIndicator = isMuted ? `${baseName} ✕` : baseName;
+      const fitted = fitLabel(nameWithIndicator, LABEL_WIDTH);
+      let label;
+      if (isMuted) {
+        const baseColor = index === currentChannel ? palette.accent : palette.text;
+        label = chalk.hex(baseColor).dim(fitted);
+      } else if (index === currentChannel) {
+        label = colorize(fitted, 'accent');
+      } else {
+        label = fitted;
+      }
       lines.push(`${label}│ ${channelLines[index].join('')}`);
     });
 

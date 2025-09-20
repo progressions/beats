@@ -522,7 +522,8 @@ export class Interface extends EventEmitter {
       playheadOffset: this.playheadOffset,
       isPlaying: this.isPlaying,
       gradientPhase: this.gradientPhase,
-      currentChannel: this.currentChannel
+      currentChannel: this.currentChannel,
+      mutedChannels: this.audioEngine ? this.audioEngine.mutedChannels : new Set()
     });
     const pitchLabel = noteNameFromMidi(this.currentPitch);
     this.parameters.update(this.measure, {
