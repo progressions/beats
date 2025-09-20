@@ -36,6 +36,8 @@ export class ControlHandler extends EventEmitter {
     this.screen.key(['enter'], () => this.emit('confirmCopySelection'));
     this.screen.key(['escape'], () => this.emit('cancelCopySelection'));
     this.screen.key(['C-v'], () => this.emit('pasteClipboard'));
+    this.screen.key(['C-z'], () => this.emit('undo'));
+    this.screen.key(['C-y'], () => this.emit('redo'));
     this.screen.key(['a', 'b', 'c', 'd', 'e', 'f', 'g'], (ch) => {
       this.emit('selectNoteLetter', ch);
     });
@@ -62,6 +64,11 @@ export class ControlHandler extends EventEmitter {
 
     this.screen.key(['d'], () => {
       this.durationIndex = (this.durationIndex + 1) % DURATION_ORDER.length;
+      this.emit('changeDuration', DURATION_ORDER[this.durationIndex]);
+    });
+
+    this.screen.key(['D', 'S-d', 'shift-d'], () => {
+      this.durationIndex = (this.durationIndex - 1 + DURATION_ORDER.length) % DURATION_ORDER.length;
       this.emit('changeDuration', DURATION_ORDER[this.durationIndex]);
     });
 

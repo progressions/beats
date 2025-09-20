@@ -7,6 +7,7 @@ import { ControlHandler } from './controls.js';
 import { colors, colorize } from './colors.js';
 import { nextInArray, getAvailableKeys, getAvailableScales, getScaleDefinition, noteToMidi, noteNameFromMidi } from '../utils/music.js';
 import { clamp, durationToBeats, secondsToBeats } from '../utils/timing.js';
+import { Measure } from '../data/measure.js';
 
 export class Interface extends EventEmitter {
   constructor({ measure, audioEngine, defaults }) {
@@ -91,6 +92,9 @@ export class Interface extends EventEmitter {
     this.copySelecting = false;
     this.copyAnchor = null;
     this.clipboard = null;
+    this.undoStack = [];
+    this.redoStack = [];
+    this.maxUndoSteps = 50;
     this.controls = new ControlHandler(this.screen);
     this._registerControlEvents();
     this.refresh();
@@ -99,8 +103,8 @@ export class Interface extends EventEmitter {
   _buildHelpText() {
     return [
       '{bold}Space{/bold} Play/Pause  {bold}P{/bold} Add note  {bold}Del{/bold} Remove  {bold}← →{/bold} Move cursor',
-      '{bold}↑ ↓{/bold} Channel  {bold}+/-{/bold} Pitch ±  {bold}T{/bold} Tempo ±5  {bold}W{/bold} Swing  {bold}L{/bold} Loop  {bold}D{/bold} Duration',
-      '{bold}K{/bold} Key  {bold}S{/bold} Scale  {bold}R{/bold} Warmth ±  {bold}3/4{/bold} Time Sig  {bold}Ctrl+S/F5{/bold} Save  {bold}Ctrl+O/Ctrl+L/F6{/bold} Load  {bold}Ctrl+N{/bold} New  {bold}Ctrl+H{/bold} History  {bold}[{/bold} start {bold}]{/bold} end  {bold}C{/bold} Copy  {bold}Ctrl+V{/bold} Paste  {bold}H{/bold} Help'
+      '{bold}↑ ↓{/bold} Channel  {bold}+/-{/bold} Pitch ±  {bold}T{/bold} Tempo ±5  {bold}W{/bold} Swing  {bold}L{/bold} Loop  {bold}D/Shift+D{/bold} Duration ±',
+      '{bold}K{/bold} Key  {bold}S{/bold} Scale  {bold}R{/bold} Warmth ±  {bold}3/4{/bold} Time Sig  {bold}Ctrl+S/F5{/bold} Save  {bold}Ctrl+O/Ctrl+L/F6{/bold} Load  {bold}Ctrl+N{/bold} New  {bold}Ctrl+H{/bold} History  {bold}[{/bold} start {bold}]{/bold} end  {bold}C{/bold} Copy  {bold}Ctrl+V{/bold} Paste  {bold}Ctrl+Z/Y{/bold} Undo/Redo  {bold}H{/bold} Help'
     ].join('\n');
   }
 
@@ -246,6 +250,9 @@ export class Interface extends EventEmitter {
       let noteChanged = false;
       if (this.measure) {
         const notes = this.measure.notesAtStep(this.cursorStep, this.currentChannel);
+        if (notes.length > 0) {
+          this._saveUndoSnapshot('adjust pitch');
+        }
         notes.forEach((note) => {
           const updated = this._shiftPitch(note.pitch, delta);
           if (updated !== note.pitch) {
@@ -275,6 +282,7 @@ export class Interface extends EventEmitter {
       if (!this.measure) {
         return;
       }
+      this._saveUndoSnapshot('add note');
       const existing = this.measure.notesAtStep(this.cursorStep, this.currentChannel);
       const pitch = this._nearestScaleMidi(this.currentPitch);
       const payload = {
@@ -312,6 +320,9 @@ export class Interface extends EventEmitter {
       }
       const [note] = this.measure.notesAtStep(this.cursorStep, this.currentChannel);
       if (note) {
+        this._saveUndoSnapshot('delete note');
+      }
+      if (note) {
         this.measure.removeNote(note.id);
         this.measure.recordHistory({
           parameter: 'note',
@@ -333,6 +344,7 @@ export class Interface extends EventEmitter {
         this.showMessage('Tempo limit reached (40-260 BPM).');
         return;
       }
+      this._saveUndoSnapshot('tempo change');
       this.measure.tempo = clamped;
       this.audioEngine.setTempo(this.measure.tempo);
       this.measure.touch();
@@ -345,6 +357,7 @@ export class Interface extends EventEmitter {
       if (!this.measure) {
         return;
       }
+      this._saveUndoSnapshot('toggle swing');
       const newSwing = this.measure.swing === 0 ? 0.2 : 0;
       this.measure.swing = newSwing;
       this.audioEngine.setSwing(newSwing);
@@ -358,6 +371,7 @@ export class Interface extends EventEmitter {
       if (!this.measure) {
         return;
       }
+      this._saveUndoSnapshot('key change');
       this.measure.key = nextInArray(getAvailableKeys(), this.measure.key, direction);
       const normalized = this._nearestScaleMidi(this.currentPitch);
       if (normalized !== this.currentPitch) {
@@ -373,6 +387,7 @@ export class Interface extends EventEmitter {
       if (!this.measure) {
         return;
       }
+      this._saveUndoSnapshot('scale change');
       this.measure.scale = nextInArray(getAvailableScales(), this.measure.scale, direction);
       const normalized = this._nearestScaleMidi(this.currentPitch);
       if (normalized !== this.currentPitch) {
@@ -556,6 +571,12 @@ export class Interface extends EventEmitter {
       this.showMessage(`${muted ? 'Muted' : 'Unmuted'} ${label} for playback.`);
       this.refresh();
     });
+    this.controls.on('undo', () => {
+      this._performUndo();
+    });
+    this.controls.on('redo', () => {
+      this._performRedo();
+    });
   }
 
   refresh() {
@@ -606,6 +627,8 @@ export class Interface extends EventEmitter {
     const maxChannelIndex = Math.max(0, this.measure.channelCount() - 1);
     this.currentChannel = clamp(this.currentChannel, 0, maxChannelIndex);
     this._resetCopyState();
+    this.undoStack = [];
+    this.redoStack = [];
     this._restartPlayheadTimer();
     this.refresh();
   }
@@ -933,6 +956,7 @@ export class Interface extends EventEmitter {
     if (this.copyMode) {
       this._exitCopyMode();
     }
+    this._saveUndoSnapshot('paste');
     const anchorStep = this.cursorStep;
     const anchorChannel = this.currentChannel;
     const { widthSteps, channelSpan, notes } = this.clipboard;
@@ -1097,6 +1121,100 @@ export class Interface extends EventEmitter {
     if (this.parameters) {
       this.parameters.markChanged('copy');
     }
+  }
+
+  _saveUndoSnapshot(actionType = 'action') {
+    if (!this.measure) {
+      return;
+    }
+
+    const snapshot = {
+      measure: this.measure.serialize(),
+      cursorStep: this.cursorStep,
+      currentPitch: this.currentPitch,
+      currentDuration: this.currentDuration,
+      currentChannel: this.currentChannel,
+      actionType,
+      timestamp: new Date().toISOString()
+    };
+
+    this.undoStack.push(snapshot);
+
+    if (this.undoStack.length > this.maxUndoSteps) {
+      this.undoStack.shift();
+    }
+
+    this.redoStack = [];
+  }
+
+  _performUndo() {
+    if (this.undoStack.length === 0) {
+      this.showMessage('Nothing to undo.');
+      return false;
+    }
+
+    const currentSnapshot = {
+      measure: this.measure.serialize(),
+      cursorStep: this.cursorStep,
+      currentPitch: this.currentPitch,
+      currentDuration: this.currentDuration,
+      currentChannel: this.currentChannel,
+      actionType: 'current',
+      timestamp: new Date().toISOString()
+    };
+
+    this.redoStack.push(currentSnapshot);
+
+    if (this.redoStack.length > this.maxUndoSteps) {
+      this.redoStack.shift();
+    }
+
+    const snapshot = this.undoStack.pop();
+    this._restoreSnapshot(snapshot);
+
+    this.showMessage(`Undid ${snapshot.actionType} action.`);
+    return true;
+  }
+
+  _performRedo() {
+    if (this.redoStack.length === 0) {
+      this.showMessage('Nothing to redo.');
+      return false;
+    }
+
+    const currentSnapshot = {
+      measure: this.measure.serialize(),
+      cursorStep: this.cursorStep,
+      currentPitch: this.currentPitch,
+      currentDuration: this.currentDuration,
+      currentChannel: this.currentChannel,
+      actionType: 'current',
+      timestamp: new Date().toISOString()
+    };
+
+    this.undoStack.push(currentSnapshot);
+
+    const snapshot = this.redoStack.pop();
+    this._restoreSnapshot(snapshot);
+
+    this.showMessage(`Redid ${snapshot.actionType} action.`);
+    return true;
+  }
+
+  _restoreSnapshot(snapshot) {
+    if (!snapshot || !snapshot.measure) {
+      return;
+    }
+
+    this.measure = new (this.measure.constructor)(snapshot.measure);
+    this.cursorStep = snapshot.cursorStep;
+    this.currentPitch = snapshot.currentPitch;
+    this.currentDuration = snapshot.currentDuration;
+    this.currentChannel = snapshot.currentChannel;
+
+    this.audioEngine.loopBuffer = this.audioEngine.renderLoopBuffer();
+    this.emit('measureChange', { type: 'undo', measure: this.measure });
+    this.refresh();
   }
 
   _scalePitchClasses() {
