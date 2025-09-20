@@ -83,7 +83,8 @@ export class ParameterPanel {
       currentChannel = 0,
       cursorStep = 0,
       stepResolutionBeats = 0.25,
-      isPlaying = false
+      isPlaying = false,
+      isCurrentChannelMuted = false
     } = {}
   ) {
     if (!measure) {
