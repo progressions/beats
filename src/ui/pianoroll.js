@@ -37,7 +37,9 @@ export class PianoRollView {
       currentChannel = 0,
       mutedChannels = new Set(),
       copyInfo = null,
-      selection = null
+      editInfo = null,
+      selection = null,
+      editingNoteId = null
     } = {}
   ) {
     if (!measure) {
@@ -58,15 +60,19 @@ export class PianoRollView {
 
     measure.listNotes().forEach((note) => {
       const startColumn = Math.min(width - 1, Math.floor(note.step * stepWidth));
-      const char = '█';
+      const isSelected = editingNoteId === note.id;
+      const char = isSelected ? '▓' : '█';
       const durationBeats = note.durationBeats || 0.25;
       const lengthSteps = Math.max(1, Math.round(durationBeats / 0.25));
       const span = Math.max(1, Math.round(lengthSteps * stepWidth));
       const channelIndex = clampChannel(note.channel, channelLines.length);
-      const color = this._pitchColor(note.midi);
+      const baseColor = this._pitchColor(note.midi);
+      const renderChar = isSelected
+        ? chalk.hex(baseColor).bgHex(palette.accent)(char)
+        : chalk.hex(baseColor)(char);
       for (let offset = 0; offset < span && startColumn + offset < width; offset += 1) {
         const columnIndex = startColumn + offset;
-        channelLines[channelIndex][columnIndex] = chalk.hex(color)(char);
+        channelLines[channelIndex][columnIndex] = renderChar;
       }
     });
 
@@ -138,13 +144,17 @@ export class PianoRollView {
     if (copyInfo) {
       lines.push(copyInfo);
     }
+    if (editInfo) {
+      lines.push(editInfo);
+    }
     if (noteList.length === 0) {
       lines.push(`Cue List: Channel ${currentChannel + 1} (no notes)`);
     } else {
       lines.push(`Cue List: Channel ${currentChannel + 1}`);
       const cues = noteList.map((note) => {
         const name = noteNameFromMidi(note.midi);
-        return `• step ${note.step} → ${name} (${note.duration})`;
+        const base = `• step ${note.step} → ${name} (${note.duration})`;
+        return note.id === editingNoteId ? colorize(base, 'accent') : base;
       });
       const maxVisible = 64;
       const visibleCues = cues.slice(0, maxVisible);

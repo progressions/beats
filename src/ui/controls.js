@@ -10,6 +10,7 @@ export class ControlHandler extends EventEmitter {
     this.durationIndex = 2;
     this.quantizationIndex = 0;
     this.loopIndex = Math.max(0, LOOP_OPTIONS.indexOf(16));
+    this.durationOrder = [...DURATION_ORDER];
     this._registerEvents();
   }
 

@@ -29,6 +29,7 @@ export class Interface extends EventEmitter {
     this.currentChannel = 0;
     this.currentPitch = this._nearestScaleMidi(this.currentPitch);
     this.playheadStartBeats = 0;
+    this.editingNoteId = null;
     this.screen = createScreen();
     this.palette = colors();
     this.pianoRoll = new PianoRollView({ screen: this.screen, top: 0, height: '55%' });
@@ -104,7 +105,7 @@ export class Interface extends EventEmitter {
   _buildHelpText() {
     return [
       '{bold}Space{/bold} Play/Pause  {bold}P{/bold} Add note  {bold}Del{/bold} Remove  {bold}I{/bold} Tie notes  {bold}← →{/bold} Move cursor',
-      '{bold}↑ ↓{/bold} Channel  {bold}+/-{/bold} Pitch ±  {bold}T{/bold} Tempo ±5  {bold}W{/bold} Swing  {bold}L{/bold} Loop  {bold}D/Shift+D{/bold} Duration ±  {bold}Q/Shift+Q{/bold} Quantization ±',
+      '{bold}↑ ↓{/bold} Channel  {bold}Enter{/bold} Edit note  {bold}+/-{/bold} Pitch ±  {bold}T{/bold} Tempo ±5  {bold}W{/bold} Swing  {bold}L{/bold} Loop  {bold}D/Shift+D{/bold} Duration ±  {bold}Q/Shift+Q{/bold} Quantization ±',
       '{bold}K{/bold} Key  {bold}S{/bold} Scale  {bold}R{/bold} Warmth ±  {bold}3/4{/bold} Time Sig  {bold}Ctrl+S/F5{/bold} Save  {bold}Ctrl+O/Ctrl+L/F6{/bold} Load  {bold}Ctrl+N{/bold} New  {bold}Ctrl+H{/bold} History  {bold}[{/bold} start {bold}]{/bold} end  {bold}C{/bold} Copy  {bold}Ctrl+V{/bold} Paste  {bold}Ctrl+Z/Y{/bold} Undo/Redo  {bold}H{/bold} Help'
     ].join('\n');
   }
@@ -117,6 +118,7 @@ export class Interface extends EventEmitter {
           '{bold}Interactive Measure Editor{/bold}',
           '',
           '• Space toggles playback, P adds notes, Del removes notes.',
+          '• Press Enter on a note to enter edit mode, then use +/- or D/Shift+D to tweak pitch and duration.',
           '• Arrow keys move the cursor; ↑ / ↓ swap channels; use +/- for pitch nudges.',
           '• Duration (D) and Loop (L) cycle rhythmic context for cursor movement.'
         ]
@@ -235,6 +237,7 @@ export class Interface extends EventEmitter {
       });
     });
     this.controls.on('moveCursor', (delta) => {
+      this._clearEditingNote({ silent: true, refresh: false });
       const stepIncrement = this._cursorStepIncrement();
       const maxStep = this._maximumCursorStep();
       let target = this.cursorStep + delta * stepIncrement;
@@ -253,6 +256,29 @@ export class Interface extends EventEmitter {
     });
     this.controls.on('adjustPitch', (delta) => {
       if (delta === 0) {
+        return;
+      }
+      const editingNote = this._editingNote();
+      if (editingNote) {
+        const nextPitch = this._shiftPitch(editingNote.pitch, delta);
+        if (nextPitch === editingNote.pitch) {
+          this.showMessage('Pitch limit reached for edited note.');
+          return;
+        }
+        this._saveUndoSnapshot('adjust note pitch');
+        editingNote.pitch = nextPitch;
+        this.currentPitch = nextPitch;
+        this.measure.touch();
+        this.measure.recordHistory({
+          parameter: 'note',
+          value: `pitch @${editingNote.step} → ${noteNameFromMidi(nextPitch)}`
+        });
+        if (this.audioEngine) {
+          this.audioEngine.loopBuffer = this.audioEngine.renderLoopBuffer();
+        }
+        this.showMessage(`Note pitch → ${noteNameFromMidi(nextPitch)}.`);
+        this.emit('noteChange', { type: 'update', step: editingNote.step, pitch: nextPitch });
+        this.refresh();
         return;
       }
       const nextPitch = this._shiftPitch(this.currentPitch, delta);
@@ -317,6 +343,9 @@ export class Interface extends EventEmitter {
         this.audioEngine.loopBuffer = this.audioEngine.renderLoopBuffer();
         this.showMessage(`Removed note from step ${this.cursorStep}.`);
         this.emit('noteChange', { type: 'delete', step: this.cursorStep });
+        if (this.editingNoteId === note.id) {
+          this._clearEditingNote({ silent: true, refresh: false });
+        }
       }
       this.refresh();
     });
@@ -423,6 +452,29 @@ export class Interface extends EventEmitter {
       this.refresh();
     });
     this.controls.on('changeDuration', (duration) => {
+      const editingNote = this._editingNote();
+      if (editingNote) {
+        if (editingNote.duration === duration) {
+          this.currentDuration = duration;
+          this.showMessage(`Duration already ${duration} for edited note.`);
+          return;
+        }
+        this._saveUndoSnapshot('adjust note duration');
+        editingNote.duration = duration;
+        this.currentDuration = duration;
+        this.measure.touch();
+        this.measure.recordHistory({
+          parameter: 'note',
+          value: `duration @${editingNote.step} → ${duration}`
+        });
+        if (this.audioEngine) {
+          this.audioEngine.loopBuffer = this.audioEngine.renderLoopBuffer();
+        }
+        this.showMessage(`Note duration → ${duration}.`);
+        this.emit('noteChange', { type: 'update', step: editingNote.step, duration });
+        this.refresh();
+        return;
+      }
       this.currentDuration = duration;
       this.showMessage(`Duration set to ${duration}`);
       this._recordParameterChange('duration', duration);
@@ -503,10 +555,11 @@ export class Interface extends EventEmitter {
       }
     });
     this.controls.on('confirmCopySelection', () => {
-      if (!this.copyMode) {
+      if (this.copyMode) {
+        this._handleCopyConfirm();
         return;
       }
-      this._handleCopyConfirm();
+      this._toggleNoteEditingAtCursor();
     });
     this.controls.on('cancelCopySelection', () => {
       if (!this.copyMode) {
@@ -545,6 +598,7 @@ export class Interface extends EventEmitter {
       if (!this.measure) {
         return;
       }
+      this._clearEditingNote({ silent: true, refresh: false });
       const maxIndex = Math.max(0, this.measure.channelCount() - 1);
       const next = clamp(this.currentChannel + direction, 0, maxIndex);
       if (next === this.currentChannel) {
@@ -584,6 +638,7 @@ export class Interface extends EventEmitter {
   }
 
   refresh() {
+    const editingNote = this._editingNote();
     this.pianoRoll.render(this.measure, {
       cursorStep: this.cursorStep,
       playheadStep: this.playheadStep,
@@ -593,7 +648,14 @@ export class Interface extends EventEmitter {
       currentChannel: this.currentChannel,
       mutedChannels: this.audioEngine ? this.audioEngine.mutedChannels : new Set(),
       copyInfo: this._copyInfoSummary(),
-      selection: this._activeSelectionBounds()
+      editInfo: editingNote
+        ? colorize(
+            `Editing: step ${editingNote.step} → ${noteNameFromMidi(editingNote.midi)} (${editingNote.duration})`,
+            'accent'
+          )
+        : null,
+      selection: this._activeSelectionBounds(),
+      editingNoteId: this.editingNoteId
     });
     const pitchLabel = noteNameFromMidi(this.currentPitch);
     let displayPitch = pitchLabel;
@@ -632,6 +694,7 @@ export class Interface extends EventEmitter {
     const maxChannelIndex = Math.max(0, this.measure.channelCount() - 1);
     this.currentChannel = clamp(this.currentChannel, 0, maxChannelIndex);
     this._resetCopyState();
+    this.editingNoteId = null;
     this.undoStack = [];
     this.redoStack = [];
     this._restartPlayheadTimer();
@@ -873,6 +936,7 @@ export class Interface extends EventEmitter {
     if (!this.measure) {
       return;
     }
+    this._clearEditingNote({ silent: true, refresh: false });
     const maxStep = Math.max(0, this.measure.loopLength - 1);
     const targetStep = clamp(step, 0, maxStep);
     this.cursorStep = targetStep;
@@ -894,6 +958,7 @@ export class Interface extends EventEmitter {
     if (!this.measure) {
       return;
     }
+    this._clearEditingNote({ silent: true, refresh: false });
     this.copyMode = true;
     this.copySelecting = false;
     this.copyAnchor = null;
@@ -1128,6 +1193,72 @@ export class Interface extends EventEmitter {
     }
   }
 
+  _editingNote() {
+    if (!this.measure || !this.editingNoteId) {
+      return null;
+    }
+    return this.measure.notes.find((note) => note.id === this.editingNoteId) || null;
+  }
+
+  _syncDurationIndex(duration) {
+    if (!this.controls || !duration) {
+      return;
+    }
+    if (typeof this.controls.durationIndex !== 'number' || !Array.isArray(this.controls.durationOrder)) {
+      return;
+    }
+    const index = this.controls.durationOrder.indexOf(duration);
+    if (index >= 0) {
+      this.controls.durationIndex = index;
+    }
+  }
+
+  _setEditingNote(note) {
+    if (!note) {
+      this._clearEditingNote({ silent: true });
+      return;
+    }
+    this.editingNoteId = note.id;
+    this.currentPitch = note.pitch;
+    if (note.duration) {
+      this.currentDuration = note.duration;
+      this._syncDurationIndex(note.duration);
+    }
+    this.showMessage(`Editing ${noteNameFromMidi(note.midi)} @ step ${note.step}.`);
+    this.refresh();
+  }
+
+  _clearEditingNote({ silent = false, refresh = true } = {}) {
+    if (!this.editingNoteId) {
+      return;
+    }
+    this.editingNoteId = null;
+    if (!silent) {
+      this.showMessage('Edit mode cleared.');
+    }
+    if (refresh) {
+      this.refresh();
+    }
+  }
+
+  _toggleNoteEditingAtCursor() {
+    if (!this.measure) {
+      return;
+    }
+    const notes = this.measure.notesAtStep(this.cursorStep, this.currentChannel);
+    if (notes.length === 0) {
+      this._clearEditingNote({ silent: true });
+      this.showMessage('No note at cursor to edit.');
+      return;
+    }
+    const note = notes[0];
+    if (this.editingNoteId === note.id) {
+      this._clearEditingNote();
+      return;
+    }
+    this._setEditingNote(note);
+  }
+
   _saveUndoSnapshot(actionType = 'action') {
     if (!this.measure) {
       return;
@@ -1220,6 +1351,7 @@ export class Interface extends EventEmitter {
     this.currentDuration = snapshot.currentDuration;
     this.currentQuantization = snapshot.currentQuantization || '1/16';
     this.currentChannel = snapshot.currentChannel;
+    this.editingNoteId = null;
 
     this.audioEngine.loopBuffer = this.audioEngine.renderLoopBuffer();
     this.emit('measureChange', { type: 'undo', measure: this.measure });
@@ -1268,6 +1400,9 @@ export class Interface extends EventEmitter {
 
     // Remove the second note
     this.measure.removeNote(targetNote.id);
+    if (this.editingNoteId === targetNote.id) {
+      this._clearEditingNote({ silent: true, refresh: false });
+    }
 
     this.measure.touch();
     this.measure.recordHistory({
