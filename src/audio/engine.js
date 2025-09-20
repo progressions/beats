@@ -24,6 +24,7 @@ export class AudioEngine extends EventEmitter {
     this._stopRequested = false;
     this.loopStartOffset = 0;
     this.startBeatOffset = 0;
+    this.mutedChannels = new Set();
     this.clock.on('beat', (data) => this.emit('beat', data));
   }
 
@@ -32,6 +33,7 @@ export class AudioEngine extends EventEmitter {
     this.clock.updateTempo(measure.tempo);
     this.swing.setAmount(measure.swing);
     this.filter.setWarmth(measure.warmth);
+    this.mutedChannels.clear();
     this.loopBuffer = this.renderLoopBuffer();
     this.emit('measureChanged', this.measure);
     if (this.speaker) {
@@ -112,6 +114,29 @@ export class AudioEngine extends EventEmitter {
     }
   }
 
+  toggleMute(channelIndex) {
+    if (channelIndex === null || channelIndex === undefined) {
+      return false;
+    }
+    if (this.mutedChannels.has(channelIndex)) {
+      this.mutedChannels.delete(channelIndex);
+    } else {
+      this.mutedChannels.add(channelIndex);
+    }
+    this.loopBuffer = this.renderLoopBuffer();
+    if (this.speaker) {
+      this._restartLoopStream();
+    }
+    return this.mutedChannels.has(channelIndex);
+  }
+
+  isMuted(channelIndex) {
+    if (channelIndex === null || channelIndex === undefined) {
+      return false;
+    }
+    return this.mutedChannels.has(channelIndex);
+  }
+
   renderLoopBuffer() {
     if (!this.measure) {
       return null;
@@ -123,6 +148,10 @@ export class AudioEngine extends EventEmitter {
     const buffer = new Float32Array(totalSamples * this.channels);
 
     this.measure.notes.forEach((note) => {
+      const channelIndex = note.channel ?? 0;
+      if (this.mutedChannels.has(channelIndex)) {
+        return;
+      }
       const durationBeats = note.durationBeats || 1;
       const durationSeconds = beatsToSeconds(durationBeats, this.measure.tempo);
       const startBeats = note.step * stepDurationBeats + this.swing.getOffset(note.step);

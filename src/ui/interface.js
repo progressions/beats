@@ -501,6 +501,18 @@ export class Interface extends EventEmitter {
       this.showMessage(`Channel → ${channelInfo.name || `Ch${this.currentChannel + 1}`}`);
       this.refresh();
     });
+    this.controls.on('toggleMute', () => {
+      if (!this.measure) {
+        return;
+      }
+      const channelIndex = this.currentChannel;
+      const muted = this.audioEngine.toggleMute(channelIndex);
+      const channelInfo = this.measure.channelInfo(channelIndex);
+      const label = channelInfo.name || `Ch${channelIndex + 1}`;
+      this.parameters.markChanged('mute');
+      this.showMessage(`${muted ? 'Muted' : 'Unmuted'} ${label} for playback.`);
+      this.refresh();
+    });
   }
 
   refresh() {
@@ -519,7 +531,8 @@ export class Interface extends EventEmitter {
       currentChannel: this.currentChannel,
       cursorStep: this.cursorStep,
       stepResolutionBeats: this.stepResolutionBeats,
-      isPlaying: this.isPlaying
+      isPlaying: this.isPlaying,
+      isCurrentChannelMuted: this.audioEngine ? this.audioEngine.isMuted(this.currentChannel) : false
     });
     this.screen.render();
   }

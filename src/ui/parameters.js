@@ -55,7 +55,12 @@ export class ParameterPanel {
     }
   }
 
-  _formatField(parameter, label, value, { positive = false, boolean = false } = {}) {
+  _formatField(
+    parameter,
+    label,
+    value,
+    { positive = false, boolean = false, displayValue } = {}
+  ) {
     const changed = this.recentChanges.has(parameter);
     let colorKey = 'accent';
     if (boolean) {
@@ -66,7 +71,8 @@ export class ParameterPanel {
     if (changed) {
       colorKey = 'warning';
     }
-    return `${label}: ${colorize(String(value), colorKey)}`;
+    const rendered = displayValue !== undefined ? displayValue : value;
+    return `${label}: ${colorize(String(rendered), colorKey)}`;
   }
 
   update(
@@ -104,7 +110,10 @@ export class ParameterPanel {
         'Time',
         `${measure.timeSignature.beats}/${measure.timeSignature.division}`
       ),
-      this._formatField('swing', 'Swing', swingLabel, { boolean: true }),
+      this._formatField('swing', 'Swing', measure.swing > 0, {
+        boolean: true,
+        displayValue: swingLabel
+      }),
       this._formatField('loopLength', 'Loop', loopLabel)
     ].join(' │ ');
 
@@ -119,8 +128,15 @@ export class ParameterPanel {
         'Channel',
         channelLabel
       ),
+      this._formatField('mute', 'Mute', isCurrentChannelMuted, {
+        boolean: true,
+        displayValue: isCurrentChannelMuted ? 'Muted' : 'Live'
+      }),
       this._formatField('position', 'Position', positionBeats.toFixed(1)),
-      this._formatField('playing', 'Playing', isPlaying ? 'Yes' : 'No', { boolean: true })
+      this._formatField('playing', 'Playing', isPlaying, {
+        boolean: true,
+        displayValue: isPlaying ? 'Yes' : 'No'
+      })
     ].join(' │ ');
 
     const lines = [rowOne, rowTwo];

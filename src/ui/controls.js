@@ -49,6 +49,7 @@ export class ControlHandler extends EventEmitter {
 
     this.screen.key(['r'], () => this.emit('adjustWarmth', 0.1));
     this.screen.key(['R', 'S-r', 'shift-r'], () => this.emit('adjustWarmth', -0.1));
+    this.screen.key(['m', 'M'], () => this.emit('toggleMute'));
 
     this.screen.key(['l'], () => {
       this.loopIndex = (this.loopIndex + 1) % LOOP_OPTIONS.length;
