@@ -36,7 +36,9 @@ export class PianoRollView {
       isPlaying = false,
       gradientPhase = 0,
       currentChannel = 0,
-      mutedChannels = new Set()
+      mutedChannels = new Set(),
+      copyInfo = null,
+      selection = null
     } = {}
   ) {
     if (!measure) {
@@ -87,6 +89,25 @@ export class PianoRollView {
       });
     }
 
+    if (selection) {
+      const { startStep, endStep } = selection;
+      const channelCountTotal = measure.channelCount();
+      const startChannel = clampChannel(selection.startChannel, channelCountTotal);
+      const endChannel = clampChannel(selection.endChannel, channelCountTotal) || 0;
+      const finalEndChannel = Math.max(startChannel, endChannel);
+      const startColumn = Math.min(width - 1, Math.floor(startStep * stepWidth));
+      const endColumn = Math.min(width - 1, Math.max(startColumn, Math.floor((endStep + 1) * stepWidth) - 1));
+      for (let channelIndex = startChannel; channelIndex <= finalEndChannel; channelIndex += 1) {
+        if (!channelLines[channelIndex]) {
+          continue;
+        }
+        for (let columnIndex = startColumn; columnIndex <= endColumn; columnIndex += 1) {
+          const original = channelLines[channelIndex][columnIndex] || ' ';
+          channelLines[channelIndex][columnIndex] = chalk.bgHex('#3d3750')(original);
+        }
+      }
+    }
+
     const beatMarkers = buildBeatMarkers(measure.loopLength, stepWidth, width);
     const lines = [];
     lines.push(`${padLabel('Beat')}│ ${beatMarkers}`);
@@ -115,8 +136,11 @@ export class PianoRollView {
     });
     lines.push('');
     lines.push(`Status: ${statusLabel} │ Cursor step: ${cursorStep}`);
+    if (copyInfo) {
+      lines.push(copyInfo);
+    }
     if (noteList.length === 0) {
-      lines.push('Cue List: (no notes)');
+      lines.push(`Cue List: Channel ${currentChannel + 1} (no notes)`);
     } else {
       lines.push(`Cue List: Channel ${currentChannel + 1}`);
       const cues = noteList.map((note) => {

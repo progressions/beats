@@ -87,6 +87,10 @@ export class Interface extends EventEmitter {
     });
     this.historyVisible = false;
     this.historyEntries = [];
+    this.copyMode = false;
+    this.copySelecting = false;
+    this.copyAnchor = null;
+    this.clipboard = null;
     this.controls = new ControlHandler(this.screen);
     this._registerControlEvents();
     this.refresh();
@@ -96,7 +100,7 @@ export class Interface extends EventEmitter {
     return [
       '{bold}Space{/bold} Play/Pause  {bold}P{/bold} Add note  {bold}Del{/bold} Remove  {bold}← →{/bold} Move cursor',
       '{bold}↑ ↓{/bold} Channel  {bold}+/-{/bold} Pitch ±  {bold}T{/bold} Tempo ±5  {bold}W{/bold} Swing  {bold}L{/bold} Loop  {bold}D{/bold} Duration',
-      '{bold}K{/bold} Key  {bold}S{/bold} Scale  {bold}R{/bold} Warmth ±  {bold}3/4{/bold} Time Sig  {bold}Ctrl+S/F5{/bold} Save  {bold}Ctrl+O/Ctrl+L/F6{/bold} Load  {bold}Ctrl+N{/bold} New  {bold}Ctrl+H{/bold} History  {bold}[{/bold} start {bold}]{/bold} end  {bold}H{/bold} Help'
+      '{bold}K{/bold} Key  {bold}S{/bold} Scale  {bold}R{/bold} Warmth ±  {bold}3/4{/bold} Time Sig  {bold}Ctrl+S/F5{/bold} Save  {bold}Ctrl+O/Ctrl+L/F6{/bold} Load  {bold}Ctrl+N{/bold} New  {bold}Ctrl+H{/bold} History  {bold}[{/bold} start {bold}]{/bold} end  {bold}C{/bold} Copy  {bold}Ctrl+V{/bold} Paste  {bold}H{/bold} Help'
     ].join('\n');
   }
 
@@ -118,7 +122,8 @@ export class Interface extends EventEmitter {
           'Tempo  T/Shift+T  •  Swing  W  •  Warmth  R/Shift+R',
           'Key    K/Shift+K  •  Scale  S/Shift+S',
           'Time signatures (3 or 4), loop lengths (L) update audio + visuals instantly.',
-          'F5 or Ctrl+S saves; F6, Ctrl+O, or Ctrl+L load; Ctrl+N creates a fresh measure.'
+          'F5 or Ctrl+S saves; F6, Ctrl+O, or Ctrl+L load; Ctrl+N creates a fresh measure.',
+          'Copy mode (C) selects a region; Ctrl+V pastes at the cursor.'
         ]
       },
       {
@@ -477,6 +482,31 @@ export class Interface extends EventEmitter {
     this.controls.on('saveMeasure', () => this.emit('saveMeasure'));
     this.controls.on('loadMeasure', () => this.emit('loadMeasure'));
     this.controls.on('newMeasure', () => this.emit('newMeasure'));
+    this.controls.on('toggleCopyMode', () => {
+      if (this.copyMode) {
+        this._exitCopyMode({ notify: true });
+      } else {
+        this._enterCopyMode();
+      }
+    });
+    this.controls.on('confirmCopySelection', () => {
+      if (!this.copyMode) {
+        return;
+      }
+      this._handleCopyConfirm();
+    });
+    this.controls.on('cancelCopySelection', () => {
+      if (!this.copyMode) {
+        return;
+      }
+      this._exitCopyMode({ notify: true });
+    });
+    this.controls.on('pasteClipboard', () => {
+      if (!this.measure) {
+        return;
+      }
+      this._handlePaste();
+    });
     this.controls.on('selectNoteLetter', (letter) => {
       const newPitch = this._pitchForLetter(letter);
       this.currentPitch = newPitch;
@@ -536,7 +566,9 @@ export class Interface extends EventEmitter {
       isPlaying: this.isPlaying,
       gradientPhase: this.gradientPhase,
       currentChannel: this.currentChannel,
-      mutedChannels: this.audioEngine ? this.audioEngine.mutedChannels : new Set()
+      mutedChannels: this.audioEngine ? this.audioEngine.mutedChannels : new Set(),
+      copyInfo: this._copyInfoSummary(),
+      selection: this._activeSelectionBounds()
     });
     const pitchLabel = noteNameFromMidi(this.currentPitch);
     this.parameters.update(this.measure, {
@@ -546,7 +578,12 @@ export class Interface extends EventEmitter {
       cursorStep: this.cursorStep,
       stepResolutionBeats: this.stepResolutionBeats,
       isPlaying: this.isPlaying,
-      isCurrentChannelMuted: this.audioEngine ? this.audioEngine.isMuted(this.currentChannel) : false
+      isCurrentChannelMuted: this.audioEngine ? this.audioEngine.isMuted(this.currentChannel) : false,
+      copyMeta: {
+        status: this._parameterCopyStatus(),
+        active: this.copyMode,
+        hasClipboard: Boolean(this.clipboard)
+      }
     });
     this.screen.render();
   }
@@ -560,6 +597,7 @@ export class Interface extends EventEmitter {
     this.gradientPhase = 0;
     const maxChannelIndex = Math.max(0, this.measure.channelCount() - 1);
     this.currentChannel = clamp(this.currentChannel, 0, maxChannelIndex);
+    this._resetCopyState();
     this._restartPlayheadTimer();
     this.refresh();
   }
@@ -814,6 +852,243 @@ export class Interface extends EventEmitter {
     }
     this.showMessage(message);
     this.refresh();
+  }
+
+  _enterCopyMode() {
+    if (!this.measure) {
+      return;
+    }
+    this.copyMode = true;
+    this.copySelecting = false;
+    this.copyAnchor = null;
+    if (this.parameters) {
+      this.parameters.markChanged('copy');
+    }
+    this.showMessage('Copy mode — press Enter to set start, Esc to cancel.');
+    this.refresh();
+  }
+
+  _exitCopyMode({ notify = false } = {}) {
+    this.copyMode = false;
+    this.copySelecting = false;
+    this.copyAnchor = null;
+    if (this.parameters) {
+      this.parameters.markChanged('copy');
+    }
+    if (notify) {
+      this.showMessage('Copy mode cancelled.');
+    }
+    this.refresh();
+  }
+
+  _handleCopyConfirm() {
+    if (!this.measure) {
+      return;
+    }
+    if (!this.copySelecting) {
+      this.copySelecting = true;
+      this.copyAnchor = {
+        step: this.cursorStep,
+        channel: this.currentChannel
+      };
+      this.showMessage('Copy start set — move to end and press Enter again.');
+      this.refresh();
+      return;
+    }
+    const bounds = this._activeSelectionBounds();
+    if (!bounds) {
+      this.showMessage('No selection to copy.');
+      return;
+    }
+    const clipboard = this._extractClipboard(bounds);
+    if (!clipboard) {
+      this.showMessage('Selected region contains no notes.');
+      return;
+    }
+    this.clipboard = clipboard;
+    if (this.parameters) {
+      this.parameters.markChanged('copy');
+    }
+    this._exitCopyMode();
+    this.showMessage(`Copied ${clipboard.noteCount} note${clipboard.noteCount === 1 ? '' : 's'} from Ch${bounds.startChannel + 1}-${bounds.endChannel + 1}, steps ${bounds.startStep}-${bounds.endStep}.`);
+    this.refresh();
+  }
+
+  _handlePaste() {
+    if (!this.clipboard) {
+      this.showMessage('Clipboard empty — copy a region first.');
+      return;
+    }
+    if (!this.measure) {
+      return;
+    }
+    if (this.copyMode) {
+      this._exitCopyMode();
+    }
+    const anchorStep = this.cursorStep;
+    const anchorChannel = this.currentChannel;
+    const { widthSteps, channelSpan, notes } = this.clipboard;
+    const intendedEndStep = anchorStep + widthSteps - 1;
+    const intendedEndChannel = anchorChannel + channelSpan - 1;
+    const maxChannelIndex = Math.max(0, this.measure.channelCount() - 1);
+    const maxStepIndex = Math.max(0, this.measure.loopLength - 1);
+    if (anchorChannel > maxChannelIndex || anchorStep > maxStepIndex) {
+      this.showMessage('Paste start is outside measure bounds.');
+      return;
+    }
+
+    const finalEndChannel = Math.min(intendedEndChannel, maxChannelIndex);
+    const finalEndStep = Math.min(intendedEndStep, maxStepIndex);
+    const truncated = finalEndChannel < intendedEndChannel || finalEndStep < intendedEndStep;
+
+    if (finalEndChannel < anchorChannel || finalEndStep < anchorStep) {
+      this.showMessage('Paste area is empty within current bounds.');
+      return;
+    }
+
+    const notesToRemove = this.measure.notes.filter((note) => {
+      const channelValue = note.channel ?? 0;
+      const ch = clamp(channelValue, 0, maxChannelIndex);
+      return (
+        ch >= anchorChannel &&
+        ch <= finalEndChannel &&
+        note.step >= anchorStep &&
+        note.step <= finalEndStep
+      );
+    });
+    notesToRemove.forEach((note) => this.measure.removeNote(note.id));
+
+    notes.forEach((entry) => {
+      const targetChannel = anchorChannel + entry.relativeChannel;
+      const targetStep = anchorStep + entry.relativeStep;
+      if (targetChannel < anchorChannel || targetChannel > finalEndChannel) {
+        return;
+      }
+      if (targetStep < anchorStep || targetStep > finalEndStep) {
+        return;
+      }
+      const payload = { ...entry.noteData };
+      delete payload.id;
+      payload.channel = targetChannel;
+      payload.step = targetStep;
+      this.measure.addNote(payload);
+    });
+
+    this.measure.touch();
+    this.measure.recordHistory({
+      parameter: 'paste',
+      value: `steps ${anchorStep}-${finalEndStep} ch ${anchorChannel + 1}-${finalEndChannel + 1}`,
+      timestamp: new Date().toISOString()
+    });
+    if (this.audioEngine) {
+      this.audioEngine.loopBuffer = this.audioEngine.renderLoopBuffer();
+      if (this.audioEngine.speaker) {
+        this.audioEngine._restartLoopStream();
+      }
+    }
+    if (this.parameters) {
+      this.parameters.markChanged('copy');
+    }
+    this.emit('noteChange', { type: 'paste', step: anchorStep });
+    const message = truncated
+      ? `Pasted ${notes.length} note${notes.length === 1 ? '' : 's'} (truncated) to Ch${anchorChannel + 1}-${finalEndChannel + 1}, steps ${anchorStep}-${finalEndStep}.`
+      : `Pasted ${notes.length} note${notes.length === 1 ? '' : 's'} to Ch${anchorChannel + 1}-${finalEndChannel + 1}, steps ${anchorStep}-${finalEndStep}.`;
+    this.showMessage(message);
+    this.refresh();
+  }
+
+  _extractClipboard(bounds) {
+    const { startStep, endStep, startChannel, endChannel } = bounds;
+    const maxChannelIndex = Math.max(0, this.measure.channelCount() - 1);
+    const selectedNotes = this.measure.notes.filter((note) => {
+      const channelValue = note.channel ?? 0;
+      const ch = clamp(channelValue, 0, maxChannelIndex);
+      return (
+        ch >= startChannel &&
+        ch <= endChannel &&
+        note.step >= startStep &&
+        note.step <= endStep
+      );
+    });
+    if (selectedNotes.length === 0) {
+      return null;
+    }
+    const notes = selectedNotes.map((note) => {
+      const channelValue = note.channel ?? 0;
+      const clampedChannel = clamp(channelValue, 0, maxChannelIndex);
+      return {
+        relativeStep: note.step - startStep,
+        relativeChannel: clampedChannel - startChannel,
+        noteData: { ...note }
+      };
+    });
+    return {
+      notes,
+      widthSteps: endStep - startStep + 1,
+      channelSpan: endChannel - startChannel + 1,
+      noteCount: selectedNotes.length
+    };
+  }
+
+  _activeSelectionBounds() {
+    if (!this.copyMode || !this.copySelecting || !this.copyAnchor) {
+      return null;
+    }
+    const startStep = Math.min(this.copyAnchor.step, this.cursorStep);
+    const endStep = Math.max(this.copyAnchor.step, this.cursorStep);
+    const startChannel = Math.min(this.copyAnchor.channel, this.currentChannel);
+    const endChannel = Math.max(this.copyAnchor.channel, this.currentChannel);
+    const maxStep = Math.max(0, this.measure.loopLength - 1);
+    const maxChannelIndex = Math.max(0, this.measure.channelCount() - 1);
+    return {
+      startStep: clamp(startStep, 0, maxStep),
+      endStep: clamp(endStep, 0, maxStep),
+      startChannel: clamp(startChannel, 0, maxChannelIndex),
+      endChannel: clamp(endChannel, 0, maxChannelIndex)
+    };
+  }
+
+  _copyInfoSummary() {
+    if (!this.measure) {
+      return null;
+    }
+    if (this.copyMode) {
+      const bounds = this._activeSelectionBounds();
+      if (this.copySelecting && bounds) {
+        return `Copy selection → Ch${bounds.startChannel + 1}-${bounds.endChannel + 1}, steps ${bounds.startStep}-${bounds.endStep}`;
+      }
+      return 'Copy mode active — press Enter to mark start.';
+    }
+    if (this.clipboard) {
+      return `Clipboard → ${this.clipboard.noteCount} note${this.clipboard.noteCount === 1 ? '' : 's'} (${this.clipboard.channelSpan} ch × ${this.clipboard.widthSteps} steps)`;
+    }
+    return null;
+  }
+
+  _parameterCopyStatus() {
+    if (this.copyMode) {
+      if (this.copySelecting) {
+        const bounds = this._activeSelectionBounds();
+        if (bounds) {
+          return `Selecting ${bounds.endStep - bounds.startStep + 1} steps × ${bounds.endChannel - bounds.startChannel + 1} ch`;
+        }
+      }
+      return 'Copy mode';
+    }
+    if (this.clipboard) {
+      return `Clipboard ready (${this.clipboard.noteCount} notes)`;
+    }
+    return 'Idle';
+  }
+
+  _resetCopyState() {
+    this.copyMode = false;
+    this.copySelecting = false;
+    this.copyAnchor = null;
+    this.clipboard = null;
+    if (this.parameters) {
+      this.parameters.markChanged('copy');
+    }
   }
 
   _scalePitchClasses() {

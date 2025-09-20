@@ -84,7 +84,8 @@ export class ParameterPanel {
       cursorStep = 0,
       stepResolutionBeats = 0.25,
       isPlaying = false,
-      isCurrentChannelMuted = false
+      isCurrentChannelMuted = false,
+      copyMeta = {}
     } = {}
   ) {
     if (!measure) {
@@ -140,7 +141,15 @@ export class ParameterPanel {
       })
     ].join(' │ ');
 
-    const lines = [rowOne, rowTwo];
+    const copyStatus = copyMeta.status || 'Idle';
+    const copyActive = Boolean(copyMeta.active);
+    const copyReady = Boolean(copyMeta.hasClipboard);
+    const rowThree = this._formatField('copy', 'Copy', copyActive || copyReady, {
+      positive: copyActive || copyReady,
+      displayValue: copyStatus
+    });
+
+    const lines = [rowOne, rowTwo, rowThree];
     if (currentPitch) {
       lines.push(`Next Note: ${colorize(currentPitch, 'accent')}`);
     }

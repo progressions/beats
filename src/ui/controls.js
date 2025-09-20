@@ -32,6 +32,10 @@ export class ControlHandler extends EventEmitter {
     this.screen.key(['C-s', 'C-S-s', 'f5'], () => this.emit('saveMeasure'));
     this.screen.key(['C-o', 'C-l', 'f6'], () => this.emit('loadMeasure'));
     this.screen.key(['C-n'], () => this.emit('newMeasure'));
+    this.screen.key(['c', 'C'], () => this.emit('toggleCopyMode'));
+    this.screen.key(['enter'], () => this.emit('confirmCopySelection'));
+    this.screen.key(['escape'], () => this.emit('cancelCopySelection'));
+    this.screen.key(['C-v'], () => this.emit('pasteClipboard'));
     this.screen.key(['a', 'b', 'c', 'd', 'e', 'f', 'g'], (ch) => {
       this.emit('selectNoteLetter', ch);
     });
