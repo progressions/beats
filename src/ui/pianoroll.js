@@ -109,16 +109,19 @@ export class PianoRollView {
     });
 
     const statusLabel = isPlaying ? colorize('Playing', 'success') : colorize('Stopped', 'warning');
-    const noteList = measure.listNotes();
+    const noteList = measure.listNotes().filter((note) => {
+      const channelIndex = clampChannel(note.channel, measure.channelCount());
+      return channelIndex === currentChannel;
+    });
     lines.push('');
     lines.push(`Status: ${statusLabel} │ Cursor step: ${cursorStep}`);
     if (noteList.length === 0) {
       lines.push('Cue List: (no notes)');
     } else {
-      lines.push('Cue List:');
+      lines.push(`Cue List: Channel ${currentChannel + 1}`);
       const cues = noteList.map((note) => {
         const name = noteNameFromMidi(note.midi);
-        return `• Ch${(note.channel ?? 0) + 1} step ${note.step} → ${name} (${note.duration})`;
+        return `• step ${note.step} → ${name} (${note.duration})`;
       });
       const maxVisible = 64;
       const visibleCues = cues.slice(0, maxVisible);
