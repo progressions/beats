@@ -1,6 +1,6 @@
 import EventEmitter from 'events';
 
-const LOOP_OPTIONS = [16, 32, 64];
+const LOOP_OPTIONS = [16, 32, 64, 128, 256];
 const DURATION_ORDER = ['1/16', '1/8', '1/4', '1/2', '1/1'];
 
 export class ControlHandler extends EventEmitter {
@@ -8,7 +8,7 @@ export class ControlHandler extends EventEmitter {
     super();
     this.screen = screen;
     this.durationIndex = 2;
-    this.loopIndex = 0;
+    this.loopIndex = Math.max(0, LOOP_OPTIONS.indexOf(16));
     this._registerEvents();
   }
 
@@ -29,8 +29,8 @@ export class ControlHandler extends EventEmitter {
     this.screen.key([']'], () => this.emit('helpNext'));
     this.screen.key(['['], () => this.emit('helpPrev'));
     this.screen.key(['C-h'], () => this.emit('toggleHistory'));
-    this.screen.key(['C-s'], () => this.emit('saveMeasure'));
-    this.screen.key(['C-o'], () => this.emit('loadMeasure'));
+    this.screen.key(['C-s', 'C-S-s', 'f5'], () => this.emit('saveMeasure'));
+    this.screen.key(['C-o', 'C-l', 'f6'], () => this.emit('loadMeasure'));
     this.screen.key(['C-n'], () => this.emit('newMeasure'));
     this.screen.key(['a', 'b', 'c', 'd', 'e', 'f', 'g'], (ch) => {
       this.emit('selectNoteLetter', ch);

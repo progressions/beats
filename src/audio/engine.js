@@ -20,6 +20,8 @@ export class AudioEngine extends EventEmitter {
     this.speaker = null;
     this.loopBuffer = null;
     this.loopStream = null;
+    this.loopChunkFrames = 2048;
+    this._stopRequested = false;
     this.clock.on('beat', (data) => this.emit('beat', data));
   }
 
@@ -88,6 +90,7 @@ export class AudioEngine extends EventEmitter {
     this._stopLoopStream();
     if (this.speaker) {
       this.speaker.end();
+      this.speaker.close(false);
       this.speaker = null;
     }
     this.clock.stop();
@@ -147,10 +150,28 @@ export class AudioEngine extends EventEmitter {
       return;
     }
     this._stopLoopStream();
+    this._stopRequested = false;
     const buffer = this.loopBuffer;
+    const chunkBytes = Math.max(1, Math.min(buffer.length, this.loopChunkFrames * this.channels * 2));
+    let offset = 0;
+    const context = this;
     this.loopStream = new Readable({
       read() {
-        this.push(Buffer.from(buffer));
+        if (!context.speaker || context._stopRequested) {
+          this.push(null);
+          return;
+        }
+        if (buffer.length === 0) {
+          this.push(null);
+          return;
+        }
+        const end = Math.min(offset + chunkBytes, buffer.length);
+        const chunk = buffer.slice(offset, end);
+        offset = end;
+        if (offset >= buffer.length) {
+          offset = 0;
+        }
+        this.push(Buffer.from(chunk));
       }
     });
     this.loopStream.on('error', (error) => this.emit('error', error));
@@ -158,8 +179,11 @@ export class AudioEngine extends EventEmitter {
   }
 
   _stopLoopStream() {
+    this._stopRequested = true;
     if (this.loopStream) {
-      this.loopStream.unpipe(this.speaker);
+      if (this.speaker) {
+        this.loopStream.unpipe(this.speaker);
+      }
       this.loopStream.destroy();
       this.loopStream = null;
     }

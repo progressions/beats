@@ -4,7 +4,17 @@ import path from 'path';
 import { Measure } from './data/measure.js';
 import { Interface } from './ui/interface.js';
 import { AudioEngine } from './audio/engine.js';
-import { ensureDirectories, saveMeasure, loadMeasure, listMeasures, saveSession, measureSummary } from './data/persistence.js';
+import {
+  ensureDirectories,
+  saveMeasure,
+  loadMeasure,
+  listMeasures,
+  listSessions,
+  saveSession,
+  measureSummary,
+  sessionSummary,
+  loadSessionMeasure
+} from './data/persistence.js';
 import { validateMeasure } from './data/validation.js';
 
 async function loadDefaults() {
@@ -110,8 +120,9 @@ async function run() {
     }
     try {
       const filePath = await saveMeasure(currentMeasure);
-      ui.showMessage(`Saved to ${path.basename(filePath)}`);
-      logHistory({ parameter: 'save', value: path.basename(filePath), timestamp: new Date().toISOString() });
+      const savedName = path.basename(filePath);
+      ui.showMessage(`Saved "${currentMeasure.name}" → measures/${savedName}`);
+      logHistory({ parameter: 'save', value: savedName, timestamp: new Date().toISOString() });
       scheduleAutoSave('save');
     } catch (error) {
       ui.showMessage(`Save failed: ${error.message}`);
@@ -119,47 +130,99 @@ async function run() {
   });
 
   ui.on('loadMeasure', async () => {
-    const files = await listMeasures();
-    if (files.length === 0) {
-      ui.showMessage('No measures saved yet.');
+    const [measureFiles, sessionFiles] = await Promise.all([listMeasures(), listSessions()]);
+    if (measureFiles.length === 0 && sessionFiles.length === 0) {
+      ui.showMessage('No measures or sessions saved yet.');
       return;
     }
-    const summaries = await Promise.all(
-      files.map(async (file) => ({
+
+    const entries = [];
+
+    const measureSummaries = await Promise.all(
+      measureFiles.map(async (file) => ({
+        type: 'measure',
         file,
         summary: await measureSummary(file)
       }))
     );
+    entries.push(...measureSummaries);
+
+    const sessionSummaries = await Promise.all(
+      sessionFiles.map(async (file) => ({
+        type: 'session',
+        file,
+        summary: await sessionSummary(file)
+      }))
+    );
+    entries.push(...sessionSummaries);
+
+    const formatTimestamp = (iso) => {
+      if (!iso) {
+        return '—';
+      }
+      const date = new Date(iso);
+      if (Number.isNaN(date.getTime())) {
+        return '—';
+      }
+      return date.toLocaleString();
+    };
+
     const choice = await ui.promptList({
-      title: 'Load Measure',
-      items: summaries.map(({ summary, file }) => {
+      title: 'Load Measure or Session',
+      items: entries.map((entry) => {
+        const fileName = path.basename(entry.file);
+        const { summary } = entry;
         if (summary.error) {
-          return `${path.basename(file)} (error)`;
+          const label = entry.type === 'session' ? 'Session' : 'Measure';
+          return `${label}: ${fileName} (error)`;
         }
-        const { name, tempo, key, scale, loopLength, timeSignature } = summary;
-        const signature = timeSignature ? `${timeSignature.beats}/${timeSignature.division}` : '—';
-        const tempoLabel = tempo ? `${tempo}` : '—';
-        const keyLabel = key || '—';
-        const scaleLabel = scale || '—';
-        const stepsLabel = loopLength || '—';
-        return `${name} • ${tempoLabel} BPM • ${keyLabel} ${scaleLabel} • ${stepsLabel} steps • ${signature}`;
+        const signature = summary.timeSignature ? `${summary.timeSignature.beats}/${summary.timeSignature.division}` : '—';
+        const tempoLabel = summary.tempo ? `${summary.tempo}` : '—';
+        const keyLabel = summary.key || '—';
+        const scaleLabel = summary.scale || '—';
+        const stepsLabel = summary.loopLength || '—';
+        if (entry.type === 'session') {
+          const reasonLabel = summary.reason ? summary.reason : 'session';
+          const timeLabel = formatTimestamp(summary.timestamp);
+          return `Session • ${timeLabel} • ${reasonLabel} • ${summary.name} (${keyLabel} ${scaleLabel}, ${tempoLabel} BPM, ${stepsLabel} steps, ${signature})`;
+        }
+        return `Measure • ${summary.name} (${keyLabel} ${scaleLabel}, ${tempoLabel} BPM, ${stepsLabel} steps, ${signature})`;
       })
     });
     if (!choice) {
       ui.showMessage('Load cancelled.');
       return;
     }
-    const selected = summaries[choice.index];
+    const selected = entries[choice.index];
     const selectedPath = selected.file;
     try {
-      currentMeasure = await loadMeasure(selectedPath);
-      audioEngine.setMeasure(currentMeasure);
-      ui.setMeasure(currentMeasure);
-      parameterHistory = [...currentMeasure.history];
-      ui.updateHistory(parameterHistory);
-      logHistory({ parameter: 'load', value: path.basename(selectedPath), timestamp: new Date().toISOString() });
-      scheduleAutoSave('load');
-      ui.showMessage(`Loaded ${currentMeasure.name || path.basename(selectedPath)}`);
+      if (selected.type === 'session') {
+        const { measure, history, metadata } = await loadSessionMeasure(selectedPath);
+        currentMeasure = measure;
+        audioEngine.setMeasure(currentMeasure);
+        ui.setMeasure(currentMeasure);
+        parameterHistory = Array.isArray(history) ? [...history] : [...currentMeasure.history];
+        currentMeasure.history = [...parameterHistory];
+        ui.updateHistory(parameterHistory);
+        logHistory({
+          parameter: 'session-load',
+          value: path.basename(selectedPath),
+          timestamp: new Date().toISOString()
+        });
+        scheduleAutoSave('session-load');
+        const reasonLabel = metadata.reason ? ` (${metadata.reason})` : '';
+        const timeLabel = metadata.timestamp ? ` @ ${formatTimestamp(metadata.timestamp)}` : '';
+        ui.showMessage(`Recovered session → ${currentMeasure.name || path.basename(selectedPath)}${reasonLabel}${timeLabel}`);
+      } else {
+        currentMeasure = await loadMeasure(selectedPath);
+        audioEngine.setMeasure(currentMeasure);
+        ui.setMeasure(currentMeasure);
+        parameterHistory = [...currentMeasure.history];
+        ui.updateHistory(parameterHistory);
+        logHistory({ parameter: 'load', value: path.basename(selectedPath), timestamp: new Date().toISOString() });
+        scheduleAutoSave('load');
+        ui.showMessage(`Loaded ${currentMeasure.name || path.basename(selectedPath)}`);
+      }
     } catch (error) {
       ui.showMessage(`Load failed: ${error.message}`);
     }

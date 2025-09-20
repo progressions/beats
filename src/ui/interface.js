@@ -95,7 +95,7 @@ export class Interface extends EventEmitter {
     return [
       '{bold}Space{/bold} Play/Pause  {bold}P{/bold} Add note  {bold}Del{/bold} Remove  {bold}← →{/bold} Move cursor',
       '{bold}↑ ↓{/bold} Channel  {bold}+/-{/bold} Pitch ±  {bold}T{/bold} Tempo ±5  {bold}W{/bold} Swing  {bold}L{/bold} Loop  {bold}D{/bold} Duration',
-      '{bold}K{/bold} Key  {bold}S{/bold} Scale  {bold}R{/bold} Warmth ±  {bold}3/4{/bold} Time Sig  {bold}Ctrl+S{/bold} Save  {bold}Ctrl+O{/bold} Load  {bold}Ctrl+N{/bold} New  {bold}Ctrl+H{/bold} History  {bold}[ ]{/bold} Help Pages  {bold}H{/bold} Help'
+      '{bold}K{/bold} Key  {bold}S{/bold} Scale  {bold}R{/bold} Warmth ±  {bold}3/4{/bold} Time Sig  {bold}Ctrl+S/F5{/bold} Save  {bold}Ctrl+O/Ctrl+L/F6{/bold} Load  {bold}Ctrl+N{/bold} New  {bold}Ctrl+H{/bold} History  {bold}[ ]{/bold} Help Pages  {bold}H{/bold} Help'
     ].join('\n');
   }
 
@@ -117,7 +117,7 @@ export class Interface extends EventEmitter {
           'Tempo  T/Shift+T  •  Swing  W  •  Warmth  R/Shift+R',
           'Key    K/Shift+K  •  Scale  S/Shift+S',
           'Time signatures (3 or 4), loop lengths (L) update audio + visuals instantly.',
-          'Ctrl+S saves, Ctrl+O loads, Ctrl+N creates a fresh measure.'
+          'F5 or Ctrl+S saves; F6, Ctrl+O, or Ctrl+L load; Ctrl+N creates a fresh measure.'
         ]
       },
       {
@@ -345,15 +345,14 @@ export class Interface extends EventEmitter {
       if (!this.measure) {
         return;
       }
-      const previousKey = this.measure.key;
-      const nextKey = nextInArray(getAvailableKeys(), this.measure.key, direction);
-      this.measure.key = nextKey;
-      const changed = this._transposeNotesBetweenKeys(previousKey, nextKey);
+      this.measure.key = nextInArray(getAvailableKeys(), this.measure.key, direction);
+      const normalized = this._nearestScaleMidi(this.currentPitch);
+      if (normalized !== this.currentPitch) {
+        this.currentPitch = normalized;
+      }
       this.measure.touch();
       this._recordParameterChange('key', this.measure.key);
-      if (changed) {
-        this.audioEngine.loopBuffer = this.audioEngine.renderLoopBuffer();
-      }
+      this.audioEngine.loopBuffer = this.audioEngine.renderLoopBuffer();
       this.showMessage(`Key → ${this.measure.key}`);
       this.refresh();
     });
@@ -362,12 +361,13 @@ export class Interface extends EventEmitter {
         return;
       }
       this.measure.scale = nextInArray(getAvailableScales(), this.measure.scale, direction);
-      const changed = this._remapNotesToScale({ force: true });
+      const normalized = this._nearestScaleMidi(this.currentPitch);
+      if (normalized !== this.currentPitch) {
+        this.currentPitch = normalized;
+      }
       this.measure.touch();
       this._recordParameterChange('scale', this.measure.scale);
-      if (changed) {
-        this.audioEngine.loopBuffer = this.audioEngine.renderLoopBuffer();
-      }
+      this.audioEngine.loopBuffer = this.audioEngine.renderLoopBuffer();
       this.showMessage(`Scale → ${this.measure.scale}`);
       this.refresh();
     });
@@ -397,7 +397,8 @@ export class Interface extends EventEmitter {
       this.measure.touch();
       this._recordParameterChange('loopLength', steps);
       this.audioEngine.loopBuffer = this.audioEngine.renderLoopBuffer();
-      this.showMessage(`Loop length → ${steps} steps.`);
+      const beats = (steps * this.stepResolutionBeats).toFixed(0);
+      this.showMessage(`Loop length → ${beats} beats (${steps} steps).`);
       this._restartPlayheadTimer();
       this.refresh();
     });
@@ -591,15 +592,13 @@ export class Interface extends EventEmitter {
 
       input.focus();
       this.screen.render();
-      input.readInput((err, value) => {
-        if (err) {
-          cleanup(null);
-        } else {
-          cleanup((value || '').trim());
-        }
-      });
+      const handleSubmit = (value) => cleanup((value || '').trim());
+      const handleCancel = () => cleanup(null);
 
-      input.key(['escape'], () => cleanup(null));
+      input.once('submit', handleSubmit);
+      input.once('cancel', handleCancel);
+      input.key(['escape'], () => input.emit('cancel'));
+      input.key(['enter'], () => input.emit('submit', input.getValue()));
     });
   }
 
@@ -792,54 +791,6 @@ export class Interface extends EventEmitter {
     }
     const nearest = this._nearestPitchFromSequence(matches, this.currentPitch);
     return nearest;
-  }
-
-  _transposeNotesBetweenKeys(oldKey, newKey) {
-    if (!this.measure) {
-      return;
-    }
-    const oldClass = noteToMidi(oldKey, 0) % 12;
-    const newClass = noteToMidi(newKey, 0) % 12;
-    let delta = newClass - oldClass;
-    if (delta > 6) {
-      delta -= 12;
-    }
-    if (delta < -6) {
-      delta += 12;
-    }
-    let changed = false;
-    this.measure.notes.forEach((note) => {
-      const updated = clamp(note.pitch + delta, 24, 96);
-      if (updated !== note.pitch) {
-        note.pitch = updated;
-        changed = true;
-      }
-    });
-    const remapped = this._remapNotesToScale({ force: changed });
-    return changed || remapped;
-  }
-
-  _remapNotesToScale({ force = false } = {}) {
-    if (!this.measure) {
-      return false;
-    }
-    const sequence = this._scaleMidiSequence();
-    if (sequence.length === 0) {
-      return false;
-    }
-    let changed = false;
-    this.measure.notes.forEach((note) => {
-      const mapped = this._nearestPitchFromSequence(sequence, note.pitch);
-      if (mapped !== note.pitch) {
-        note.pitch = mapped;
-        changed = true;
-      }
-    });
-    const normalized = this._nearestPitchFromSequence(sequence, this.currentPitch);
-    if (normalized !== this.currentPitch) {
-      this.currentPitch = normalized;
-    }
-    return changed || force;
   }
 
   _statusContent(message) {

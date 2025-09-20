@@ -103,14 +103,48 @@ export class PianoRollView {
       lines.push('Cue List: (no notes)');
     } else {
       lines.push('Cue List:');
-      noteList.slice(0, 12).forEach((note) => {
+      const cues = noteList.map((note) => {
         const name = noteNameFromMidi(note.midi);
-        lines.push(
-          `  • Ch${(note.channel ?? 0) + 1} step ${note.step} → ${name} (${note.duration})`
-        );
+        return `• Ch${(note.channel ?? 0) + 1} step ${note.step} → ${name} (${note.duration})`;
       });
-      if (noteList.length > 12) {
-        lines.push(`  … ${noteList.length - 12} more`);
+      const maxVisible = 32;
+      const visibleCues = cues.slice(0, maxVisible);
+      const columnTarget = 4;
+      const columnCount = Math.min(columnTarget, visibleCues.length);
+      if (columnCount <= 1) {
+        visibleCues.forEach((cue) => {
+          lines.push(`  ${cue}`);
+        });
+      } else {
+        const rows = Math.ceil(visibleCues.length / columnCount);
+        const columns = Array.from({ length: columnCount }, (_, columnIndex) => {
+          const columnEntries = [];
+          for (let row = 0; row < rows; row += 1) {
+            const index = columnIndex * rows + row;
+            if (index < visibleCues.length) {
+              columnEntries.push(visibleCues[index]);
+            }
+          }
+          return columnEntries;
+        });
+        const columnWidths = columns.map((entries) => {
+          return entries.reduce((width, text) => Math.max(width, text.length), 0);
+        });
+        for (let row = 0; row < rows; row += 1) {
+          const cells = [];
+          for (let columnIndex = 0; columnIndex < columns.length; columnIndex += 1) {
+            const value = columns[columnIndex][row];
+            if (value) {
+              cells.push(value.padEnd(columnWidths[columnIndex], ' '));
+            }
+          }
+          if (cells.length > 0) {
+            lines.push(`  ${cells.join('  ')}`);
+          }
+        }
+      }
+      if (noteList.length > visibleCues.length) {
+        lines.push(`  … ${noteList.length - visibleCues.length} more`);
       }
     }
 

@@ -87,6 +87,8 @@ export class ParameterPanel {
     this._pruneExpiredChanges();
 
     const loopBeats = measure.loopLength * stepResolutionBeats;
+    const beatLabel = Number.isInteger(loopBeats) ? `${loopBeats}` : loopBeats.toFixed(2);
+    const loopLabel = `${beatLabel} beats (${measure.loopLength} steps)`;
     const swingLabel = measure.swing > 0 ? 'ON' : 'OFF';
     const scaleName = capitalize(measure.scale);
     const positionBeats = cursorStep * stepResolutionBeats;
@@ -103,7 +105,7 @@ export class ParameterPanel {
         `${measure.timeSignature.beats}/${measure.timeSignature.division}`
       ),
       this._formatField('swing', 'Swing', swingLabel, { boolean: true }),
-      this._formatField('loopLength', 'Loop', `${Math.round(loopBeats)} beats`)
+      this._formatField('loopLength', 'Loop', loopLabel)
     ].join(' │ ');
 
     const channelLabel = channelInfo.name
