@@ -4,7 +4,9 @@ The Interactive Measure Editor represents an unconventional approach to music cr
 
 ## The Core Vision
 
-I set out to create something that doesn't exist in the current landscape: a music sequencer that runs entirely in the terminal. While DAWs require heavy GUI frameworks and audio software often demands complex installations, this application runs with nothing more than Node.js and a terminal that supports 256 colors. The goal was to capture musical ideas as quickly as writing code—with keyboard shortcuts, immediate feedback, and no mouse dependency.
+I set out to create something that I'd like to use: a music sequencer that runs entirely in the terminal. While DAWs require heavy GUI frameworks and audio software often demands complex installations, this application runs with nothing more than Node.js and a terminal that supports 256 colors. The goal was to capture musical ideas as quickly as writing code—with keyboard shortcuts, immediate feedback, and no mouse dependency.
+
+The specific motivation was creating themes for my game Shadow Kingdom. I needed a tool for composing simple, looping NES-style music reminiscent of classic Zelda soundtracks—melodic themes that could seamlessly integrate into game environments. Traditional DAWs felt heavyweight for this focused task, and I wanted something that matched my development workflow: fast, keyboard-driven, and terminal-based.
 
 ## Architecture Decisions
 
@@ -171,9 +173,10 @@ The application is currently in alpha but fully functional for its intended use 
 - **Documentation**: More comprehensive help system
 
 ### Future Features
-- **MIDI export**: Save compositions to standard MIDI files
-- **Multiple measures**: Chain sequences for complete songs
+- **MIDI export**: Save compositions to standard MIDI files for use in Shadow Kingdom
+- **Multiple measures**: Chain sequences for complete songs and longer game themes
 - **Sample support**: Load and trigger audio samples alongside synthesis
+- **Game integration**: Direct export to game-ready audio formats
 - **Network sync**: Collaborative editing over websockets
 
 ## Lessons Learned
@@ -185,7 +188,7 @@ This project proved that command-line interfaces don't have to be primitive. Wit
 While Node.js isn't known for audio applications, the `speaker` package and careful buffer management made real-time synthesis surprisingly stable.
 
 ### Keyboard Shortcuts Need Consistency
-The shortcut system evolved organically, leading to some inconsistencies. Future versions will establish clearer conventions for key mappings.
+The shortcut system evolved organically, leading to some inconsistencies. For example, the initial implementation had a conflict where Q was mapped to both Quit and Quantization control—a serious usability issue. I resolved this by moving quantization to Z/Shift+Z (representing "Zoom" or grid level), which maintains the paired increment/decrement pattern while avoiding conflicts. Future versions will establish clearer conventions for key mappings.
 
 ## Technical Specifications
 
@@ -195,6 +198,6 @@ The shortcut system evolved organically, leading to some inconsistencies. Future
 - **Memory usage**: <50MB for typical sessions
 - **File formats**: JSON for measures, auto-generated timestamps for sessions
 
-The Interactive Measure Editor demonstrates that music software doesn't need complex interfaces or heavyweight frameworks. By embracing terminal-native design and keyboard-driven workflows, it offers a unique creative environment optimized for rapid musical sketching. While still in alpha, the foundation is solid enough to support serious musical work, and the modular architecture makes future enhancements straightforward.
+The Interactive Measure Editor demonstrates that music software doesn't need complex interfaces or heavyweight frameworks. By embracing terminal-native design and keyboard-driven workflows, it offers a unique creative environment optimized for rapid musical sketching. The application has already proven useful for composing NES-style themes for Shadow Kingdom, generating the kind of simple, looping melodies that work well in game environments. While still in alpha, the foundation is solid enough to support serious musical work, and the modular architecture makes future enhancements straightforward.
 
 For developers interested in audio programming or terminal UI design, the codebase offers practical examples of real-time synthesis, event-driven architecture, and responsive terminal interfaces. The project proves that with careful design decisions and attention to user experience, even unconventional platforms can support sophisticated creative tools.

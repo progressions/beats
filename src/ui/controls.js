@@ -75,12 +75,12 @@ export class ControlHandler extends EventEmitter {
       this.emit('changeDuration', DURATION_ORDER[this.durationIndex]);
     });
 
-    this.screen.key(['q'], () => {
+    this.screen.key(['z'], () => {
       this.quantizationIndex = (this.quantizationIndex + 1) % DURATION_ORDER.length;
       this.emit('changeQuantization', DURATION_ORDER[this.quantizationIndex]);
     });
 
-    this.screen.key(['Q', 'S-q', 'shift-q'], () => {
+    this.screen.key(['Z', 'S-z', 'shift-z'], () => {
       this.quantizationIndex = (this.quantizationIndex - 1 + DURATION_ORDER.length) % DURATION_ORDER.length;
       this.emit('changeQuantization', DURATION_ORDER[this.quantizationIndex]);
     });

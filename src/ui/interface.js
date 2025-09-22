@@ -105,7 +105,7 @@ export class Interface extends EventEmitter {
   _buildHelpText() {
     return [
       '{bold}Space{/bold} Play/Pause  {bold}P{/bold} Add note  {bold}Del{/bold} Remove  {bold}I{/bold} Tie notes  {bold}← →{/bold} Move cursor',
-      '{bold}↑ ↓{/bold} Channel  {bold}Enter{/bold} Edit note  {bold}+/-{/bold} Pitch ±  {bold}T{/bold} Tempo ±5  {bold}W{/bold} Swing  {bold}L{/bold} Loop  {bold}D/Shift+D{/bold} Duration ±  {bold}Q/Shift+Q{/bold} Quantization ±',
+      '{bold}↑ ↓{/bold} Channel  {bold}Enter{/bold} Edit note  {bold}+/-{/bold} Pitch ±  {bold}T{/bold} Tempo ±5  {bold}W{/bold} Swing  {bold}L{/bold} Loop  {bold}D/Shift+D{/bold} Duration ±  {bold}Z/Shift+Z{/bold} Quantization ±',
       '{bold}K{/bold} Key  {bold}S{/bold} Scale  {bold}R{/bold} Warmth ±  {bold}3/4{/bold} Time Sig  {bold}Ctrl+S/F5{/bold} Save  {bold}Ctrl+O/Ctrl+L/F6{/bold} Load  {bold}Ctrl+N{/bold} New  {bold}Ctrl+H{/bold} History  {bold}[{/bold} start {bold}]{/bold} end  {bold}C{/bold} Copy  {bold}Ctrl+V{/bold} Paste  {bold}Ctrl+Z/Y{/bold} Undo/Redo  {bold}H{/bold} Help'
     ].join('\n');
   }

@@ -72,7 +72,7 @@ Measures save to `measures/`; recovery snapshots land in `sessions/` with timest
 - `K` / `Shift+K` – Cycle key forward / backward
 - `S` / `Shift+S` – Cycle scale forward / backward
 - `D` / `Shift+D` – Duration grid (also doubles for note edit)
-- `Q` / `Shift+Q` – Cycle quantization grid (when not exiting)
+- `Z` / `Shift+Z` – Cycle quantization grid
 - `M` – Toggle mute for the current channel
 
 ## Data Layout
